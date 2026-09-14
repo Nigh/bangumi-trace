@@ -16,6 +16,8 @@ const toBase64 = (bytes: Uint8Array) => {
 }
 const getCookie = (request: Request, name: string) => request.headers.get("cookie")?.split(/;\s*/).find((item) => item.startsWith(`${name}=`))?.slice(name.length + 1)
 const cookie = (name: string, value: string, maxAge: number) => `${name}=${value}; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=${maxAge}`
+const frontendUrl = (env: Env) => env.FRONTEND_ORIGIN.endsWith("/") ? env.FRONTEND_ORIGIN.slice(0, -1) : env.FRONTEND_ORIGIN
+const frontendOrigin = (env: Env) => new URL(frontendUrl(env)).origin
 
 async function key(env: Env) {
   const bytes = Uint8Array.from(atob(env.SESSION_SECRET), (char) => char.charCodeAt(0))
@@ -39,10 +41,10 @@ async function challenge(verifier: string) {
 }
 function cors(env: Env, request: Request) {
   const origin = request.headers.get("origin")
-  return origin === env.FRONTEND_ORIGIN ? { "access-control-allow-origin": origin, "access-control-allow-credentials": "true", "access-control-allow-headers": "content-type", "access-control-allow-methods": "GET, PUT, POST, OPTIONS", vary: "Origin" } : null
+  return origin === frontendOrigin(env) ? { "access-control-allow-origin": origin, "access-control-allow-credentials": "true", "access-control-allow-headers": "content-type", "access-control-allow-methods": "GET, PUT, POST, OPTIONS", vary: "Origin" } : null
 }
 function assertWriteRequest(env: Env, request: Request) {
-  if (request.headers.get("origin") !== env.FRONTEND_ORIGIN) throw new Response("Forbidden", { status: 403 })
+  if (request.headers.get("origin") !== frontendOrigin(env)) throw new Response("Forbidden", { status: 403 })
   if (request.method === "PUT" && !request.headers.get("content-type")?.startsWith("application/json")) throw new Response("Unsupported media type", { status: 415 })
 }
 async function session(env: Env, request: Request) {
@@ -73,7 +75,7 @@ async function callback(env: Env, request: Request) {
   if (!user.login) return json({ error: "无法读取 GitHub 用户信息" }, 502)
   const maxAge = Math.min(token.expires_in ?? 28_800, 28_800)
   const value = await seal(env, { login: user.login, token: token.access_token, expiresAt: Date.now() + maxAge * 1000 } satisfies Session)
-  const headers = new Headers({ location: `${env.FRONTEND_ORIGIN}/#settings` })
+  const headers = new Headers({ location: frontendUrl(env) + "/#settings" })
   headers.append("set-cookie", cookie("bt_session", value, maxAge))
   headers.append("set-cookie", cookie("bt_oauth", "", 0))
   return new Response(null, { status: 302, headers })
