@@ -13,7 +13,7 @@ const env = {
 } as Env
 
 const data = {
-  version: 2,
+  version: 3,
   shows: [{ id: "show-1", title: ["Primary", "Alternative"], status: "watching", volumes: [{ id: "s1", type: "正剧", episodeCount: 12 }] }],
   watchEvents: [{ id: "event-1", showId: "show-1", episodes: { volumeId: "s1", from: 1, to: 1 }, watchedAt: { precision: "day", value: "2026-09-14" }, recordedAt: "2026-09-14T12:00:00Z", source: "manual" }],
 }
@@ -21,9 +21,11 @@ const data = {
 afterEach(() => vi.unstubAllGlobals())
 
 describe("data boundary", () => {
-  it("accepts valid volume references and rejects old or dangling data", () => {
+  it("accepts version 3 and rejects old, oversized, or dangling data", () => {
     expect(validData(data)).toBe(true)
-    expect(validData({ ...data, version: 1 })).toBe(false)
+    expect(validData({ ...data, shows: [{ ...data.shows[0], note: "" }] })).toBe(true)
+    expect(validData({ ...data, version: 2 })).toBe(false)
+    expect(validData({ ...data, shows: [{ ...data.shows[0], note: "x".repeat(2049) }] })).toBe(false)
     expect(validData({ ...data, watchEvents: [{ ...data.watchEvents[0], episodes: { volumeId: "missing", from: 1, to: 1 } }] })).toBe(false)
   })
 })

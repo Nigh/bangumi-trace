@@ -3,14 +3,15 @@ type Volume = { id: string; type: string; episodeCount: number }
 export function validData(value: unknown) {
   if (!value || typeof value !== "object") return false
   const data = value as { version?: unknown; shows?: unknown; watchEvents?: unknown }
-  if (data.version !== 2 || !Array.isArray(data.shows) || !Array.isArray(data.watchEvents)) return false
+  if (data.version !== 3 || !Array.isArray(data.shows) || !Array.isArray(data.watchEvents)) return false
   const volumeOwners = new Map<string, { showId: string; episodeCount: number }>()
   for (const show of data.shows) {
     if (!show || typeof show !== "object") return false
-    const item = show as { id?: unknown; title?: unknown; status?: unknown; volumes?: unknown }
+    const item = show as { id?: unknown; title?: unknown; status?: unknown; note?: unknown; volumes?: unknown }
     if (typeof item.id !== "string" || !Array.isArray(item.title) || !item.title.length ||
       !item.title.every((title) => typeof title === "string" && title.trim()) ||
-      !["planned", "watching", "completed", "dropped"].includes(String(item.status)) || !Array.isArray(item.volumes)) return false
+      !["planned", "watching", "completed", "dropped"].includes(String(item.status)) ||
+      item.note !== undefined && (typeof item.note !== "string" || item.note.length > 2048) || !Array.isArray(item.volumes)) return false
     for (const value of item.volumes) {
       const volume = value as Partial<Volume>
       if (!value || typeof value !== "object" || typeof volume.id !== "string" || volumeOwners.has(volume.id) ||
