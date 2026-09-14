@@ -13,7 +13,7 @@ export interface Show {
   status: Status
   volumes: Volume[]
   externalRef?: { provider: "bangumi"; id: string }
-  notes?: string[]
+  note: string
   import?: { raw?: string; source?: string }
 }
 
@@ -32,17 +32,18 @@ export interface WatchEvent {
   sourceCommit?: string
 }
 
-export interface BangumiData { version: 2; shows: Show[]; watchEvents: WatchEvent[] }
-export const emptyData = (): BangumiData => ({ version: 2, shows: [], watchEvents: [] })
+export interface BangumiData { version: 3; shows: Show[]; watchEvents: WatchEvent[] }
+export const emptyData = (): BangumiData => ({ version: 3, shows: [], watchEvents: [] })
 
 export function isBangumiData(value: unknown): value is BangumiData {
   if (!value || typeof value !== "object") return false
   const data = value as Record<string, unknown>
-  if (data.version !== 2 || !Array.isArray(data.shows) || !Array.isArray(data.watchEvents)) return false
+  if (data.version !== 3 || !Array.isArray(data.shows) || !Array.isArray(data.watchEvents)) return false
   const shows = data.shows as Record<string, unknown>[]
   if (!shows.every((show) => typeof show?.id === "string" && Array.isArray(show.title) && show.title.length > 0 &&
     show.title.every((title) => typeof title === "string" && title.trim()) &&
-    ["planned", "watching", "completed", "dropped"].includes(String(show.status)) && Array.isArray(show.volumes) &&
+    ["planned", "watching", "completed", "dropped"].includes(String(show.status)) &&
+    typeof show.note === "string" && show.note.length <= 2048 && Array.isArray(show.volumes) &&
     show.volumes.every((volume) => validVolume(volume)))) return false
   const volumes = new Map(shows.flatMap((show) => (show.volumes as Volume[]).map((volume) => [volume.id, { volume, showId: show.id }])))
   return data.watchEvents.every((event) => validEvent(event, volumes))

@@ -3,6 +3,7 @@ import { emptyData, expandedEpisodes, isBangumiData, mapCumulativeEpisode, match
 
 const show: Show = {
   id: "show-1", title: ["默认标题", "Japanese title", "English Title"], status: "watching",
+  note: "",
   volumes: [
     { id: "s1", type: "正剧", episodeCount: 12 },
     { id: "ova1", type: "OVA", episodeCount: 2 },
@@ -40,10 +41,11 @@ describe("volumes and activity", () => {
 })
 
 describe("validation", () => {
-  it("accepts version 2 and rejects old or dangling data", () => {
+  it("accepts version 3 and rejects old, oversized, or dangling data", () => {
     const data: BangumiData = { ...emptyData(), shows: [show], watchEvents: [event("s1", 1, "2026-09-12")] }
     expect(isBangumiData(data)).toBe(true)
-    expect(isBangumiData({ ...data, version: 1 })).toBe(false)
+    expect(isBangumiData({ ...data, version: 2 })).toBe(false)
+    expect(isBangumiData({ ...data, shows: [{ ...show, note: "x".repeat(2049) }] })).toBe(false)
     expect(isBangumiData({ ...data, watchEvents: [{ ...data.watchEvents[0], episodes: { volumeId: "missing", from: 1, to: 1 } }] })).toBe(false)
   })
 })
