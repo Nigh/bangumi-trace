@@ -13,7 +13,7 @@ export interface Show {
   status: Status
   volumes: Volume[]
   externalRef?: { provider: "bangumi"; id: string }
-  note: string
+  note?: string
   import?: { raw?: string; source?: string }
 }
 
@@ -43,7 +43,7 @@ export function isBangumiData(value: unknown): value is BangumiData {
   if (!shows.every((show) => typeof show?.id === "string" && Array.isArray(show.title) && show.title.length > 0 &&
     show.title.every((title) => typeof title === "string" && title.trim()) &&
     ["planned", "watching", "completed", "dropped"].includes(String(show.status)) &&
-    typeof show.note === "string" && show.note.length <= 2048 && Array.isArray(show.volumes) &&
+    (show.note === undefined || typeof show.note === "string" && show.note.length <= 2048) && Array.isArray(show.volumes) &&
     show.volumes.every((volume) => validVolume(volume)))) return false
   const volumes = new Map(shows.flatMap((show) => (show.volumes as Volume[]).map((volume) => [volume.id, { volume, showId: show.id }])))
   return data.watchEvents.every((event) => validEvent(event, volumes))

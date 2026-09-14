@@ -11,7 +11,7 @@ export function validData(value: unknown) {
     if (typeof item.id !== "string" || !Array.isArray(item.title) || !item.title.length ||
       !item.title.every((title) => typeof title === "string" && title.trim()) ||
       !["planned", "watching", "completed", "dropped"].includes(String(item.status)) ||
-      typeof item.note !== "string" || item.note.length > 2048 || !Array.isArray(item.volumes)) return false
+      item.note !== undefined && (typeof item.note !== "string" || item.note.length > 2048) || !Array.isArray(item.volumes)) return false
     for (const value of item.volumes) {
       const volume = value as Partial<Volume>
       if (!value || typeof value !== "object" || typeof volume.id !== "string" || volumeOwners.has(volume.id) ||

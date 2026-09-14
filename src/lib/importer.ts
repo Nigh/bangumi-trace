@@ -11,7 +11,7 @@ export function importCurrent(value: unknown): Show[] {
   return flatten(input.items).filter((item) => item.kind === "item" && item.title?.trim()).map((item) => ({
     id: crypto.randomUUID(), title: [item.title!.trim()], status: item.status ?? "planned",
     volumes: [{ id: crypto.randomUUID(), type: "正剧", episodeCount: Math.max(1, item.progress ?? 1) }],
-    note: "", import: { raw: item.raw, source: item.source },
+    import: { raw: item.raw, source: item.source },
   }))
 }
 

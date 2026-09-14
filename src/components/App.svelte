@@ -56,7 +56,7 @@
   }
   function addShow() {
     if (!newTitle.trim()) return
-    const show: Show = { id: crypto.randomUUID(), title: [newTitle.trim()], status: "planned", volumes: [], note: "" }
+    const show: Show = { id: crypto.randomUUID(), title: [newTitle.trim()], status: "planned", volumes: [] }
     data = { ...data, shows: [...data.shows, show] }; newTitle = ""; cache(); go(`show/${show.id}`)
   }
   function updateShow(next: Show) { data = { ...data, shows: data.shows.map((show) => show.id === next.id ? next : show) }; cache() }
