@@ -15,7 +15,8 @@
   ]
   let data: BangumiData = emptyData(), sha: string | null = null, query = "", statusFilter: Status[] = statuses.map(({ value }) => value), listRank = new Map<string, number>()
   let view = "list", selectedId = "", notice = "", auth: "checking" | "authenticated" | "unauthenticated" | "repository-error" = "checking", busy = false, dirty = false
-  let importBackup: BangumiData | null = null, repositoryDialog: HTMLDialogElement
+  let importBackup: BangumiData | null = null, repositoryDialog: HTMLDialogElement, confirmDialog: HTMLDialogElement, addShowDialog: HTMLDialogElement, addVolumeDialog: HTMLDialogElement
+  let confirmation: { title: string; body: string; label: string; danger: boolean; action: () => void | Promise<void> } = { title: "", body: "", label: "确认", danger: false, action: () => {} }
   let newTitle = "", metadataQuery = "", candidates: Awaited<ReturnType<typeof searchBangumi>>["data"] = []
   let volumeType = "正剧", customVolumeType = "", volumeEpisodes = 12
   let volumeId = "", episodeFrom = 1, episodeTo = 1, precision: Precision = "exact", watchedValue = "", editingEventId = "", activeSubtitle = -1
@@ -34,6 +35,10 @@
   const go = (next: string) => { location.hash = next }
   function cache(markDirty = true) { dirty = markDirty; localStorage.setItem(CACHE, JSON.stringify({ data, sha })) }
   function message(text: string) { notice = text; setTimeout(() => notice === text && (notice = ""), 4000) }
+  function ask(title: string, body: string, action: () => void | Promise<void>, label = "确认", danger = false) {
+    confirmation = { title, body, action, label, danger }; confirmDialog.showModal()
+  }
+  async function confirmAction() { confirmDialog.close(); await confirmation.action() }
   const nowForInput = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)
 
   onMount(async () => {
@@ -43,8 +48,8 @@
     await sync(false)
   })
 
-  async function sync(force = true) {
-    if (force && dirty && !confirm("强制同步会永久放弃尚未保存的本地修改，并使用 GitHub 数据覆盖。继续？")) return
+  async function sync(force = true, confirmed = false) {
+    if (force && dirty && !confirmed) return ask("覆盖本地修改？", "强制同步会永久放弃尚未保存的本地修改，并使用 GitHub 数据覆盖。", () => sync(true, true), "覆盖并同步", true)
     busy = true
     try { ({ data, sha } = await loadData()); auth = "authenticated"; cache(false); if (view === "list") refreshListOrder(); if (force) message("已用 GitHub 数据覆盖本地内容") }
     catch (error) {
@@ -66,20 +71,21 @@
   function addShow() {
     if (!newTitle.trim()) return
     const show: Show = { id: crypto.randomUUID(), title: [newTitle.trim()], status: "planned", volumes: [] }
-    data = { ...data, shows: [...data.shows, show] }; newTitle = ""; cache(); go(`show/${show.id}`)
+    listRank.set(show.id, Math.min(0, ...listRank.values()) - 1); data = { ...data, shows: [...data.shows, show] }; newTitle = ""; addShowDialog.close(); cache()
   }
   function updateShow(next: Show) { data = { ...data, shows: data.shows.map((show) => show.id === next.id ? next : show) }; cache() }
   function removeShow(show: Show) {
-    if (!confirm(`删除“${show.title[0]}”及其观看记录？`)) return
-    data = { ...data, shows: data.shows.filter((item) => item.id !== show.id), watchEvents: data.watchEvents.filter((event) => event.showId !== show.id) }
-    cache(); go("list")
+    ask("删除作品？", `“${show.title[0]}”及其观看记录都会被删除。`, () => {
+      data = { ...data, shows: data.shows.filter((item) => item.id !== show.id), watchEvents: data.watchEvents.filter((event) => event.showId !== show.id) }
+      cache(); go("list")
+    }, "删除作品", true)
   }
   function addVolume() {
     if (!selected || !Number.isInteger(volumeEpisodes) || volumeEpisodes < 1) return message("集数必须是正整数")
     const type = volumeType === "自定义" ? customVolumeType.trim() : volumeType
     if (!type) return message("请输入 volume 类型")
     updateShow({ ...selected, volumes: [...selected.volumes, { id: crypto.randomUUID(), type, episodeCount: volumeEpisodes }] })
-    customVolumeType = ""
+    customVolumeType = ""; addVolumeDialog.close()
   }
   function resizeVolume(volume: Volume, episodeCount: number) {
     if (!selected || !Number.isInteger(episodeCount) || episodeCount < 1) return message("集数必须是正整数")
@@ -90,9 +96,10 @@
   function removeVolume(volume: Volume) {
     if (!selected) return
     const count = data.watchEvents.filter((event) => event.episodes.volumeId === volume.id).length
-    if (!confirm(count ? `删除 ${volumeLabel(selected, volume)}，并删除其 ${count} 条观看记录？` : `删除 ${volumeLabel(selected, volume)}？`)) return
-    data = { ...data, shows: data.shows.map((show) => show.id === selected.id ? { ...show, volumes: show.volumes.filter((item) => item.id !== volume.id) } : show), watchEvents: data.watchEvents.filter((event) => event.episodes.volumeId !== volume.id) }
-    cache()
+    ask(`删除 ${volumeLabel(selected, volume)}？`, count ? `同时会删除其中的 ${count} 条观看记录。` : "此操作无法撤销。", () => {
+      data = { ...data, shows: data.shows.map((show) => show.id === selected.id ? { ...show, volumes: show.volumes.filter((item) => item.id !== volume.id) } : show), watchEvents: data.watchEvents.filter((event) => event.episodes.volumeId !== volume.id) }
+      cache()
+    }, "删除 Volume", true)
   }
   function quickRecord(show: Show, volume: Volume) {
     const episode = nextEpisode(data, volume)
@@ -103,7 +110,7 @@
   }
   function confirmQuickRecord(show: Show, volume: Volume) {
     const episode = nextEpisode(data, volume)
-    if (episode && confirm(`确认已观看《${show.title[0]}》${volumeLabel(show, volume)}第 ${episode} 话？`)) quickRecord(show, volume)
+    if (episode) ask("确认观看进度？", `《${show.title[0]}》${volumeLabel(show, volume)}第 ${episode} 话将标记为已观看。`, () => quickRecord(show, volume), "确认记录")
   }
   function startRecord(show: Show, event?: WatchEvent) {
     selectedId = show.id; editingEventId = event?.id ?? ""
@@ -130,8 +137,7 @@
     cache(); go(`show/${selected.id}`)
   }
   function removeEvent(id: string) {
-    if (!confirm("删除这条观看记录？")) return
-    data = { ...data, watchEvents: data.watchEvents.filter((event) => event.id !== id) }; cache()
+    ask("删除观看记录？", "此操作无法撤销。", () => { data = { ...data, watchEvents: data.watchEvents.filter((event) => event.id !== id) }; cache() }, "删除记录", true)
   }
   function displayDate(event: WatchEvent) {
     const watched = event.watchedAt
@@ -157,17 +163,14 @@
   function undoImport() { if (importBackup) { data = importBackup; importBackup = null; cache(); message("已撤销最近一次导入") } }
   async function importFile(file: File) {
     try {
-      const value = JSON.parse(await file.text()); importBackup = structuredClone(data)
+      const value = JSON.parse(await file.text())
       if (Array.isArray(value.items)) {
         const imported = importCurrent(value)
-        if (!confirm(`预览：将导入 ${imported.length} 个作品。继续？`)) return
-        data = { ...data, shows: [...data.shows, ...imported] }
+        ask("导入作品？", `将添加 ${imported.length} 个作品到本地草稿。`, () => { importBackup = structuredClone(data); data = { ...data, shows: [...data.shows, ...imported] }; cache(); message("导入保存在本地草稿中，请检查后保存") }, "确认导入")
       } else {
         const imported = importHistory(value, data)
-        if (!confirm(`预览：找到 ${imported.length} 条高置信候选记录；观看时间保持未知。继续？`)) return
-        data = { ...data, watchEvents: [...data.watchEvents, ...imported] }
+        ask("导入观看历史？", `将添加 ${imported.length} 条高置信候选记录，观看时间保持未知。`, () => { importBackup = structuredClone(data); data = { ...data, watchEvents: [...data.watchEvents, ...imported] }; cache(); message("导入保存在本地草稿中，请检查后保存") }, "确认导入")
       }
-      cache(); message("导入保存在本地草稿中，请检查后保存")
     } catch (error) { message((error as Error).message) }
   }
 </script>
@@ -175,6 +178,18 @@
 <dialog class="modal" bind:this={repositoryDialog}>
   <div class="modal-box"><h2 class="text-xl font-bold">找不到可用的数据仓库</h2><p class="py-4">请创建私有仓库 <code>bangumi-trace-data</code>，并授权 GitHub App 访问，然后重试。</p><a class="link link-primary" href={SETUP_DOC} target="_blank" rel="noreferrer">查看仓库配置文档</a><div class="modal-action"><form method="dialog"><button class="btn">关闭</button></form><button class="btn btn-primary" on:click={() => sync(false)}>重试</button></div></div>
 </dialog>
+<dialog class="modal" bind:this={confirmDialog}>
+  <div class="modal-box"><h2 class="text-xl font-bold">{confirmation.title}</h2><p class="py-4 text-base-content/70">{confirmation.body}</p><div class="modal-action"><form method="dialog"><button class="btn">取消</button></form><button class:btn-error={confirmation.danger} class:btn-primary={!confirmation.danger} class="btn" on:click={confirmAction}>{confirmation.label}</button></div></div>
+</dialog>
+
+<dialog class="modal" bind:this={addShowDialog}>
+  <form class="modal-box" on:submit|preventDefault={addShow}><h2 class="text-xl font-bold">添加作品</h2><label class="form-control mt-4"><span class="label-text">作品名称</span><input class="input input-bordered" bind:value={newTitle} placeholder="输入任意语言标题" required /></label><div class="modal-action"><button class="btn" type="button" on:click={() => addShowDialog.close()}>取消</button><button class="btn btn-primary">添加作品</button></div></form>
+</dialog>
+
+<dialog class="modal" bind:this={addVolumeDialog}>
+  <form class="modal-box" on:submit|preventDefault={addVolume}><h2 class="text-xl font-bold">添加 Volume</h2><div class="mt-4 grid gap-4 sm:grid-cols-2"><label class="form-control"><span class="label-text">类型</span><select class="select select-bordered" bind:value={volumeType}><option>正剧</option><option>OVA</option><option>SP</option><option>自定义</option></select></label><label class="form-control"><span class="label-text">集数</span><input class="input input-bordered" type="number" min="1" bind:value={volumeEpisodes} required /></label>{#if volumeType === "自定义"}<label class="form-control sm:col-span-2"><span class="label-text">类型名称</span><input class="input input-bordered" bind:value={customVolumeType} placeholder="例如：剧场版" required /></label>{/if}</div><div class="modal-action"><button class="btn" type="button" on:click={() => addVolumeDialog.close()}>取消</button><button class="btn btn-primary">添加 Volume</button></div></form>
+</dialog>
+
 
 <svelte:window on:click={() => activeSubtitle = -1} />
 
@@ -183,22 +198,22 @@
     {#if auth === "checking"}<button class="btn" disabled>正在检查登录状态…</button>{:else}<a class="btn btn-primary" href={loginUrl}>GitHub 登录</a>{/if}
   </main>
 {:else}
-  <header class="navbar sticky top-0 z-40 border-b border-base-300 bg-base-100/95 px-4 backdrop-blur"><div class="flex-1"><button class="btn btn-ghost text-xl" on:click={() => go("list")}>Bangumi Trace</button></div><nav class="flex gap-1" aria-label="主导航">{#if dirty}<button class="btn btn-primary btn-sm" disabled={busy} on:click={save}>保存</button>{/if}<button class="btn btn-ghost btn-sm" on:click={() => go("list")}>列表</button><button class="btn btn-ghost btn-sm" on:click={() => go("settings")}>设置</button><ThemeToggle /></nav></header>
+  <header class="navbar sticky top-0 z-40 flex-wrap gap-2 border-b border-base-300 bg-base-100/95 px-4 backdrop-blur"><div class="flex-1"><button class="btn btn-ghost text-xl" on:click={() => go("list")}>Bangumi Trace</button></div><nav class="flex items-center gap-1" aria-label="主导航"><button class="btn btn-primary btn-sm" on:click={() => addShowDialog.showModal()}>添加作品</button>{#if dirty}<button class="btn btn-primary btn-sm" disabled={busy} on:click={save}>保存</button>{/if}<button class="btn btn-ghost btn-sm" on:click={() => go("list")}>列表</button><button class="btn btn-ghost btn-sm" on:click={() => go("settings")}>设置</button><ThemeToggle /></nav></header>
   <main class="mx-auto max-w-3xl p-4 pb-24">
     {#if notice}<div class="alert alert-info mb-4" role="status">{notice}</div>{/if}
     {#if view === "list"}
-      <section class="space-y-4"><div><h1 class="text-3xl font-bold">我的番剧</h1><p class="text-base-content/60">按进入列表时的最近观看活动排序。</p></div><input class="input w-full" bind:value={query} placeholder="搜索任意语言标题" aria-label="搜索" /><fieldset class="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-box border border-base-300 px-3 py-2"><legend class="sr-only">按状态过滤</legend>{#each statuses as item}<label class="flex cursor-pointer items-center gap-2 text-sm"><input class="checkbox checkbox-sm" type="checkbox" checked={statusFilter.includes(item.value)} on:change={() => toggleStatus(item.value)} /><span>{item.label}</span></label>{/each}<span class="ml-auto flex gap-1"><button class="btn btn-ghost btn-xs" type="button" on:click={() => statusFilter = statuses.map(({ value }) => value)}>全部</button><button class="btn btn-ghost btn-xs" type="button" on:click={() => statusFilter = statuses.map(({ value }) => value).filter((value) => !statusFilter.includes(value))}>反选</button></span></fieldset><form class="join w-full" on:submit|preventDefault={addShow}><input class="input join-item w-full" bind:value={newTitle} placeholder="创建本地作品" aria-label="作品标题" /><button class="btn btn-primary join-item">添加</button></form>
-        <div class="grid gap-3 sm:grid-cols-2">{#each shows as show}{@const next = nextVolumeEpisode(data, show)}{@const status = statuses.find(({ value }) => value === show.status)!}<article class="card border border-base-300 bg-base-100"><div class="card-body p-4"><div class="flex items-start justify-between gap-2"><button class="text-left text-lg font-semibold hover:text-primary" on:click={() => go(`show/${show.id}`)}>{show.title[0]}</button><span class={`badge ${status.badge}`}>{status.label}</span></div>{#if show.title.length > 1}<p class="truncate text-sm text-base-content/60">{show.title.slice(1).join(" · ")}</p>{/if}<div class="card-actions mt-auto justify-end">{#if next}<button class="btn btn-primary btn-sm" aria-label={`标记已观看${volumeLabel(show, next.volume)}第 ${next.episode} 话`} on:click={() => confirmQuickRecord(show, next.volume)}>{volumeLabel(show, next.volume)}第 {next.episode} 话</button>{:else}<button class="btn btn-sm" disabled>{show.volumes.length ? "已全部看完" : "请先添加 Volume"}</button>{/if}</div></div></article>{/each}</div>{#if !shows.length}<p class="py-16 text-center text-base-content/50">暂无匹配作品</p>{/if}
+      <section class="space-y-4"><div><h1 class="text-3xl font-bold">我的番剧</h1><p class="text-base-content/60">按进入列表时的最近观看活动排序。</p></div><input class="input w-full" bind:value={query} placeholder="搜索任意语言标题" aria-label="搜索" /><fieldset class="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-box border border-base-300 px-3 py-2"><legend class="sr-only">按状态过滤</legend>{#each statuses as item}<label class="flex cursor-pointer items-center gap-2 text-sm"><input class="checkbox checkbox-sm" type="checkbox" checked={statusFilter.includes(item.value)} on:change={() => toggleStatus(item.value)} /><span>{item.label}</span></label>{/each}<span class="ml-auto flex gap-1"><button class="btn btn-ghost btn-xs" type="button" on:click={() => statusFilter = statuses.map(({ value }) => value)}>全部</button><button class="btn btn-ghost btn-xs" type="button" on:click={() => statusFilter = statuses.map(({ value }) => value).filter((value) => !statusFilter.includes(value))}>反选</button></span></fieldset>
+        <div class="grid gap-3 sm:grid-cols-2">{#each shows as show}{@const next = nextVolumeEpisode(data, show)}{@const status = statuses.find(({ value }) => value === show.status)!}<article class="card border border-base-300 bg-base-100"><div class="card-body p-4"><div class="flex items-start justify-between gap-2"><button class="min-w-0 break-words text-left text-lg font-semibold hover:text-primary" on:click={() => go(`show/${show.id}`)}>{show.title[0]}</button><span class={`badge shrink-0 whitespace-nowrap ${status.badge}`}>{status.label}</span></div>{#if show.title.length > 1}<p class="truncate text-sm text-base-content/60">{show.title.slice(1).join(" · ")}</p>{/if}<div class="card-actions mt-auto justify-end">{#if next}<button class="btn btn-primary btn-sm" aria-label={`标记已观看${volumeLabel(show, next.volume)}第 ${next.episode} 话`} on:click={() => confirmQuickRecord(show, next.volume)}>{volumeLabel(show, next.volume)}第 {next.episode} 话</button>{:else}<button class="btn btn-sm" disabled>{show.volumes.length ? "已全部看完" : "请先添加 Volume"}</button>{/if}</div></div></article>{/each}</div>{#if !shows.length}<p class="py-16 text-center text-base-content/50">暂无匹配作品</p>{/if}
       </section>
     {:else if view === "show" && selected}
-      <section class="space-y-5"><button class="btn btn-ghost btn-sm" on:click={() => go("list")}>← 返回</button><div class="flex items-start justify-between gap-3"><div class="min-w-0"><h1 class="text-3xl font-bold">{selected.title[0]}</h1><div class="flex flex-wrap items-center gap-x-2 text-sm text-base-content/60">{#each selected.title.slice(1) as title, index}{#if index}<span aria-hidden="true">·</span>{/if}<span class="relative inline-flex"><button class="hover:text-primary" aria-expanded={activeSubtitle === index + 1} on:click|stopPropagation={() => activeSubtitle = activeSubtitle === index + 1 ? -1 : index + 1}>{title}</button>{#if activeSubtitle === index + 1}<span class="absolute left-1/2 top-full z-20 mt-2 -translate-x-1/2 rounded-box border border-base-300 bg-base-100 p-1 shadow-lg" on:click|stopPropagation><button class="btn btn-primary btn-xs whitespace-nowrap" on:click={() => { updateShow(setDefaultTitle(selected!, index + 1)); activeSubtitle = -1 }}>设为默认</button></span>{/if}</span>{/each}</div><p class="text-base-content/60">{selected.externalRef ? `Bangumi #${selected.externalRef.id}` : "本地作品"}</p></div><select class="select select-sm shrink-0" value={selected.status} aria-label="观看状态" on:change={(e) => updateShow({ ...selected!, status: (e.currentTarget as HTMLSelectElement).value as Status })}><option value="planned">计划</option><option value="watching">观看中</option><option value="completed">完成</option><option value="dropped">放弃</option></select></div>
+      <section class="space-y-5"><button class="btn btn-ghost btn-sm" on:click={() => go("list")}>← 返回</button><div class="flex flex-col items-start justify-between gap-3 sm:flex-row"><div class="min-w-0"><h1 class="text-3xl font-bold">{selected.title[0]}</h1><div class="flex flex-wrap items-center gap-x-2 text-sm text-base-content/60">{#each selected.title.slice(1) as title, index}{#if index}<span aria-hidden="true">·</span>{/if}<span class="relative inline-flex"><button class="hover:text-primary" aria-expanded={activeSubtitle === index + 1} on:click|stopPropagation={() => activeSubtitle = activeSubtitle === index + 1 ? -1 : index + 1}>{title}</button>{#if activeSubtitle === index + 1}<span class="absolute left-1/2 top-full z-20 mt-2 -translate-x-1/2 rounded-box border border-base-300 bg-base-100 p-1 shadow-lg" on:click|stopPropagation><button class="btn btn-primary btn-xs whitespace-nowrap" on:click={() => { updateShow(setDefaultTitle(selected!, index + 1)); activeSubtitle = -1 }}>设为默认</button></span>{/if}</span>{/each}</div><p class="text-base-content/60">{selected.externalRef ? `Bangumi #${selected.externalRef.id}` : "本地作品"}</p></div><fieldset class="join grid w-full grid-cols-4 sm:w-auto" aria-label="观看状态">{#each statuses as item}<button class:btn-active={selected.status === item.value} class="btn btn-sm join-item" type="button" aria-pressed={selected.status === item.value} on:click={() => updateShow({ ...selected!, status: item.value })}>{item.label}</button>{/each}</fieldset></div>
         <details class="card border border-base-300"><summary class="cursor-pointer p-4 font-semibold">笔记</summary><div class="px-4 pb-4"><textarea class="textarea textarea-bordered min-h-32 w-full" maxlength="2048" placeholder="最多 2048 字" value={selected.note ?? ""} on:change={(event) => updateShow({ ...selected!, note: event.currentTarget.value })}></textarea></div></details>
-        <div class="card border border-base-300"><div class="card-body"><h2 class="card-title">Volumes</h2><div class="space-y-2">{#each selected.volumes as volume}{@const next = nextEpisode(data, volume)}{@const watched = new Set(data.watchEvents.filter((event) => event.episodes.volumeId === volume.id).flatMap(expandedEpisodes))}<div class="rounded-lg border border-base-300 p-3"><div class="flex flex-wrap items-center gap-2"><strong class="min-w-24">{volumeLabel(selected, volume)}</strong><input class="input input-sm w-24" type="number" min="1" value={volume.episodeCount} aria-label={`${volumeLabel(selected, volume)}集数`} on:change={(event) => resizeVolume(volume, Number(event.currentTarget.value))} /><span>话</span><button class="btn btn-primary btn-sm ml-auto" disabled={!next} on:click={() => quickRecord(selected!, volume)}>{next ? `已观看第 ${next} 话` : "已看完"}</button><button class="btn btn-ghost btn-sm text-error" on:click={() => removeVolume(volume)}>删除</button></div><div class="mt-3 grid grid-cols-12 gap-1" aria-label={`${volumeLabel(selected, volume)}观看进度`}>{#each Array(volume.episodeCount) as _, index}<span class={`aspect-square min-h-2 rounded-sm ${watched.has(index + 1) ? "bg-success" : "bg-base-300"}`} title={`第 ${index + 1} 话：${watched.has(index + 1) ? "已观看" : "未观看"}`} aria-label={`第 ${index + 1} 话${watched.has(index + 1) ? "已观看" : "未观看"}`}></span>{/each}</div></div>{/each}</div><div class="flex flex-wrap gap-2"><select class="select select-sm" bind:value={volumeType}><option>正剧</option><option>OVA</option><option>SP</option><option>自定义</option></select>{#if volumeType === "自定义"}<input class="input input-sm" bind:value={customVolumeType} placeholder="类型名称" />{/if}<input class="input input-sm w-24" type="number" min="1" bind:value={volumeEpisodes} aria-label="集数" /><button class="btn btn-sm" on:click={addVolume}>添加 Volume</button></div></div></div>
+        <div class="card border border-base-300"><div class="card-body"><div class="flex items-center justify-between gap-3"><h2 class="card-title">Volumes</h2><button class="btn btn-primary btn-sm" on:click={() => addVolumeDialog.showModal()}>添加 Volume</button></div><div class="space-y-2">{#each selected.volumes as volume}{@const next = nextEpisode(data, volume)}{@const watched = new Set(data.watchEvents.filter((event) => event.episodes.volumeId === volume.id).flatMap(expandedEpisodes))}<div class="rounded-lg border border-base-300 p-3"><div class="flex flex-wrap items-center gap-2"><strong class="min-w-24">{volumeLabel(selected, volume)}</strong><input class="input input-sm w-24" type="number" min="1" value={volume.episodeCount} aria-label={`${volumeLabel(selected, volume)}集数`} on:change={(event) => resizeVolume(volume, Number(event.currentTarget.value))} /><span>话</span><button class="btn btn-primary btn-sm ml-auto" disabled={!next} on:click={() => confirmQuickRecord(selected!, volume)}>{next ? `第 ${next} 话` : "已看完"}</button><button class="btn btn-ghost btn-sm text-error" on:click={() => removeVolume(volume)}>删除</button></div><div class="mt-3 grid grid-cols-12 gap-1" aria-label={`${volumeLabel(selected, volume)}观看进度`}>{#each Array(volume.episodeCount) as _, index}<span class={`aspect-square min-h-2 rounded-sm ${watched.has(index + 1) ? "bg-success" : "bg-base-300"}`} title={`第 ${index + 1} 话：${watched.has(index + 1) ? "已观看" : "未观看"}`} aria-label={`第 ${index + 1} 话${watched.has(index + 1) ? "已观看" : "未观看"}`}></span>{/each}</div></div>{/each}</div></div></div>
         <div class="card border border-base-300"><div class="card-body"><h2 class="card-title">绑定 Bangumi</h2><div class="join"><input class="input join-item w-full" bind:value={metadataQuery} placeholder="搜索标题" /><button class="btn join-item" on:click={findMetadata}>搜索</button></div>{#each candidates as candidate}<button class="flex items-center gap-3 rounded-lg p-2 text-left hover:bg-base-200" on:click={() => bindMetadata(candidate)}>{#if candidate.images?.small}<img class="h-16 w-12 object-cover" src={candidate.images.small} alt="" />{/if}<span><strong>{candidate.name_cn || candidate.name}</strong><br /><small>{candidate.name} · {candidate.date || "日期未知"}</small></span></button>{/each}</div></div>
         <button class="btn w-full" disabled={!selected.volumes.length} on:click={() => startRecord(selected!)}>自定义补录</button><details class="rounded-box border border-base-300"><summary class="cursor-pointer px-4 py-3 font-semibold">详细观看历史 <span class="font-normal text-base-content/60">{events.length} 条</span></summary><div class="divide-y divide-base-300 border-t border-base-300 px-4">{#each events as event}<div class="flex items-center gap-2 py-2"><span class="min-w-0 flex-1"><strong class="block truncate text-sm">{episodeLabel(selected, event)}</strong><small class="text-base-content/60">{displayDate(event)}</small></span><button class="btn btn-ghost btn-xs" on:click={() => startRecord(selected!, event)}>修改</button><button class="btn btn-ghost btn-xs text-error" on:click={() => removeEvent(event.id)}>删除</button></div>{/each}{#if !events.length}<p class="py-4 text-sm text-base-content/60">尚无观看记录</p>{/if}</div></details><button class="btn btn-error btn-outline" on:click={() => removeShow(selected!)}>删除作品</button>
       </section>
     {:else if view === "record" && selected}
-      <section class="space-y-5"><button class="btn btn-ghost btn-sm" on:click={() => go(`show/${selected!.id}`)}>← 返回</button><h1 class="text-3xl font-bold">补录 · {selected.title[0]}</h1><label class="form-control"><span class="label-text">Volume</span><select class="select select-bordered" bind:value={volumeId}>{#each selected.volumes as volume}<option value={volume.id}>{volumeLabel(selected, volume)}</option>{/each}</select></label><div class="grid grid-cols-2 gap-2"><label class="form-control"><span class="label-text">从第几话</span><input class="input input-bordered" type="number" min="1" bind:value={episodeFrom} /></label><label class="form-control"><span class="label-text">到第几话</span><input class="input input-bordered" type="number" min="1" bind:value={episodeTo} /></label></div><label class="form-control"><span class="label-text">观看时间精度</span><select class="select select-bordered" bind:value={precision}><option value="exact">精确</option><option value="day">精确到日</option><option value="month">精确到月</option><option value="year">精确到年</option><option value="unknown">未知</option></select></label>{#if precision === "exact"}<input class="input input-bordered w-full" type="datetime-local" bind:value={watchedValue} />{:else if precision === "day"}<input class="input input-bordered w-full" type="date" bind:value={watchedValue} />{:else if precision === "month"}<input class="input input-bordered w-full" type="month" bind:value={watchedValue} />{:else if precision === "year"}<input class="input input-bordered w-full" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" placeholder="年份，如 2026" bind:value={watchedValue} />{/if}<button class="btn btn-primary w-full" on:click={record}>{editingEventId ? "更新本地草稿" : "加入本地草稿"}</button></section>
+      <section class="space-y-5"><button class="btn btn-ghost btn-sm" on:click={() => go(`show/${selected!.id}`)}>← 返回</button><header><h1 class="text-3xl font-bold">补录观看记录</h1><p class="mt-1 truncate text-base-content/60">{selected.title[0]}</p></header><div class="card border border-base-300"><div class="card-body gap-5"><div><h2 class="mb-3 font-semibold">观看范围</h2><div class="grid gap-4 sm:grid-cols-3"><label class="form-control sm:col-span-3"><span class="label-text">Volume</span><select class="select select-bordered" bind:value={volumeId}>{#each selected.volumes as volume}<option value={volume.id}>{volumeLabel(selected, volume)}</option>{/each}</select></label><label class="form-control"><span class="label-text">起始话</span><input class="input input-bordered" type="number" min="1" bind:value={episodeFrom} /></label><label class="form-control"><span class="label-text">结束话</span><input class="input input-bordered" type="number" min="1" bind:value={episodeTo} /></label></div></div><div class="divider my-0"></div><div><h2 class="mb-3 font-semibold">观看时间</h2><div class="grid gap-4 sm:grid-cols-2"><label class="form-control"><span class="label-text">时间精度</span><select class="select select-bordered" bind:value={precision}><option value="exact">精确</option><option value="day">精确到日</option><option value="month">精确到月</option><option value="year">精确到年</option><option value="unknown">未知</option></select></label>{#if precision === "exact"}<label class="form-control"><span class="label-text">日期与时间</span><input class="input input-bordered w-full" type="datetime-local" bind:value={watchedValue} /></label>{:else if precision === "day"}<label class="form-control"><span class="label-text">日期</span><input class="input input-bordered w-full" type="date" bind:value={watchedValue} /></label>{:else if precision === "month"}<label class="form-control"><span class="label-text">月份</span><input class="input input-bordered w-full" type="month" bind:value={watchedValue} /></label>{:else if precision === "year"}<label class="form-control"><span class="label-text">年份</span><input class="input input-bordered w-full" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" placeholder="例如 2026" bind:value={watchedValue} /></label>{/if}</div></div><div class="card-actions justify-end"><button class="btn" on:click={() => go(`show/${selected!.id}`)}>取消</button><button class="btn btn-primary" on:click={record}>{editingEventId ? "更新本地草稿" : "加入本地草稿"}</button></div></div></div></section>
     {:else if view === "settings"}
       <section class="space-y-6"><h1 class="text-3xl font-bold">设置与导入</h1><div class="card border border-base-300"><div class="card-body"><h2 class="card-title">GitHub 数据</h2><p>已登录 · {sha ? `SHA ${sha.slice(0, 8)}` : "远端文件尚未创建"}</p><div class="card-actions"><button class="btn btn-warning" disabled={busy} on:click={() => sync(true)}>强制从 GitHub 覆盖本地</button><button class="btn btn-primary" disabled={!dirty || busy} on:click={save}>保存到 GitHub</button><button class="btn btn-ghost" on:click={async () => { await logout(); auth = "unauthenticated" }}>退出</button></div></div></div><div class="card border border-base-300"><div class="card-body"><h2 class="card-title">本地迁移</h2><p>文件只在当前浏览器读取；先导入当前状态，再导入历史。</p><input class="file-input file-input-bordered" type="file" accept="application/json,.json" aria-label="选择迁移 JSON" on:change={(e) => { const file = e.currentTarget.files?.[0]; if (file) importFile(file) }} /><div class="card-actions"><button class="btn btn-sm" on:click={downloadBackup}>下载当前备份</button><button class="btn btn-sm" disabled={!importBackup} on:click={undoImport}>撤销最近导入</button></div></div></div></section>
     {:else}<div class="py-16 text-center"><p>页面或作品不存在</p><button class="btn mt-4" on:click={() => go("list")}>返回列表</button></div>{/if}
