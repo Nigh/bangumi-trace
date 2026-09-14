@@ -5,6 +5,7 @@ import tailwindcss from '@tailwindcss/vite';
 import AstroPWA from '@vite-pwa/astro';
 
 export default defineConfig({
+  base: '/bangumi-trace',
   integrations: [
     svelte(),
     AstroPWA({
