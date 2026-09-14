@@ -37,7 +37,7 @@
 </script>
 
 <button
-	class="btn btn-sm btn-outline fixed top-4 right-4 z-50"
+	class="btn btn-ghost btn-sm"
 	type="button"
 	on:click={toggleTheme}
 	aria-label="Toggle theme"
