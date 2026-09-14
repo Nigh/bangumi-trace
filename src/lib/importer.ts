@@ -10,6 +10,7 @@ export function importCurrent(value: unknown): Show[] {
   if (!Array.isArray(input?.items)) throw new Error("不是有效的 bangumi.json")
   return flatten(input.items).filter((item) => item.kind === "item" && item.title?.trim()).map((item) => ({
     id: crypto.randomUUID(), title: [item.title!.trim()], status: item.status ?? "planned",
+    volumes: [{ id: crypto.randomUUID(), type: "正剧", episodeCount: Math.max(1, item.progress ?? 1) }],
     notes: item.progress ? [`导入时进度：${item.progress}`] : [], import: { raw: item.raw, source: item.source },
   }))
 }
@@ -24,8 +25,10 @@ export function importHistory(value: unknown, data: BangumiData): WatchEvent[] {
     const removed = (file.removed ?? []).find((item) => item.title === added.title && item.progress && item.progress < added.progress!)
     const show = showByTitle.get(added.title)
     if (!removed?.progress || !show) continue
+    const volume = show.volumes.find((item) => item.type === "正剧")
+    if (!volume || added.progress > volume.episodeCount) continue
     inferred.push({
-      id: crypto.randomUUID(), showId: show.id, episodes: { absoluteFrom: removed.progress + 1, absoluteTo: added.progress },
+      id: crypto.randomUUID(), showId: show.id, episodes: { volumeId: volume.id, from: removed.progress + 1, to: added.progress },
       watchedAt: { precision: "unknown" }, recordedAt: new Date().toISOString(), source: "import-inferred",
       confidence: "high", sourceCommit: commit.commit,
     })

@@ -1,4 +1,5 @@
 import { validData } from "./validation"
+import { compressionWindow, saveParents } from "./history"
 
 type Session = { login: string; token: string; expiresAt: number }
 type OAuthState = { state: string; verifier: string; expiresAt: number }
@@ -55,6 +56,29 @@ async function github(token: string, path: string, init?: RequestInit) {
   return fetch(`https://api.github.com${path}`, { ...init, headers: { ...apiHeaders, Authorization: `Bearer ${token}`, ...init?.headers } })
 }
 const repoPath = (owner: string, dataPath: string) => "/repos/" + encodeURIComponent(owner) + "/bangumi-trace-data/contents/" + dataPath.split("/").map(encodeURIComponent).join("/")
+const repoBase = (owner: string) => "/repos/" + encodeURIComponent(owner) + "/bangumi-trace-data"
+const refPath = (branch: string) => "/git/refs/heads/" + branch.split("/").map(encodeURIComponent).join("/")
+
+type GitCommit = {
+  sha: string
+  commit: {
+    message: string
+    tree: { sha: string }
+    author: { name: string; email: string; date: string }
+    committer: { name: string; email: string; date: string }
+  }
+}
+
+async function githubJson<T>(token: string, path: string, init?: RequestInit) {
+  const response = await github(token, path, init)
+  if (!response.ok) throw Object.assign(new Error(`GitHub API ${response.status}`), { status: response.status })
+  return response.json() as Promise<T>
+}
+
+async function repositoryAvailable(auth: Session) {
+  const response = await github(auth.token, repoBase(auth.login))
+  return response.ok ? true : response.status === 404 ? false : null
+}
 
 async function login(env: Env) {
   const state = base64url(crypto.getRandomValues(new Uint8Array(24)))
@@ -81,6 +105,9 @@ async function callback(env: Env, request: Request) {
   return new Response(null, { status: 302, headers })
 }
 async function getData(env: Env, auth: Session) {
+  const available = await repositoryAvailable(auth)
+  if (available === false) return json({ error: "找不到可用的 bangumi-trace-data 仓库", code: "DATA_REPOSITORY_UNAVAILABLE" }, 404)
+  if (available === null) return json({ error: "检查 GitHub 数据仓库失败" }, 502)
   const response = await github(auth.token, `${repoPath(auth.login, env.GITHUB_DATA_PATH)}?ref=${encodeURIComponent(env.GITHUB_BRANCH)}`)
   if (response.status === 404) return json({ data: null, sha: null })
   if (!response.ok) return json({ error: "读取 GitHub 数据失败" }, response.status)
@@ -88,20 +115,66 @@ async function getData(env: Env, auth: Session) {
   try { return json({ data: JSON.parse(decoder.decode(Uint8Array.from(atob(file.content.replace(/\n/g, "")), (char) => char.charCodeAt(0)))), sha: file.sha }) }
   catch { return json({ error: "远端 JSON 无效" }, 502) }
 }
+
+async function createGitObject<T>(auth: Session, path: string, body: unknown) {
+  return githubJson<T>(auth.token, `${repoBase(auth.login)}/git/${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
+}
+
+async function currentHead(env: Env, auth: Session) {
+  return githubJson<{ object: { sha: string } }>(auth.token, `${repoBase(auth.login)}${refPath(env.GITHUB_BRANCH)}`)
+}
+
+async function updateHead(env: Env, auth: Session, expected: string, sha: string, force: boolean) {
+  const latest = await currentHead(env, auth)
+  if (latest.object.sha !== expected) throw Object.assign(new Error("远端数据已更新"), { status: 409 })
+  const response = await github(auth.token, `${repoBase(auth.login)}${refPath(env.GITHUB_BRANCH)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ sha, force }) })
+  if (!response.ok) throw Object.assign(new Error("更新 GitHub 分支失败"), { status: response.status === 422 ? 409 : response.status })
+}
+
+async function compactHistory(env: Env, auth: Session, expectedHead: string) {
+  const commits = await githubJson<GitCommit[]>(auth.token, `${repoBase(auth.login)}/commits?sha=${encodeURIComponent(env.GITHUB_BRANCH)}&per_page=100`)
+  const window = compressionWindow(commits)
+  if (!window) return
+  const { recent, cutoff } = window
+  const baseline = await createGitObject<{ sha: string }>(auth, "commits", { message: "Compressed bangumi history", tree: cutoff.commit.tree.sha, parents: [] })
+  let parent = baseline.sha
+  for (const item of recent.reverse()) {
+    const recreated = await createGitObject<{ sha: string }>(auth, "commits", { message: item.commit.message, tree: item.commit.tree.sha, parents: [parent], author: item.commit.author, committer: item.commit.committer })
+    parent = recreated.sha
+  }
+  await updateHead(env, auth, expectedHead, parent, true)
+}
+
 async function putData(env: Env, request: Request, auth: Session) {
   if (Number(request.headers.get("content-length") ?? 0) > 2_000_000) return json({ error: "数据文件过大" }, 413)
   const body = await request.json().catch(() => null) as { data?: unknown; sha?: unknown } | null
   if (!body || !validData(body.data) || (body.sha !== null && typeof body.sha !== "string")) return json({ error: "数据格式无效" }, 400)
   const content = JSON.stringify(body.data, null, 2) + "\n"
   if (content.length > 2_000_000) return json({ error: "数据文件过大" }, 413)
-  const bytes = encoder.encode(content)
-  const payload: Record<string, unknown> = { message: "Update bangumi data", content: toBase64(bytes), branch: env.GITHUB_BRANCH }
-  if (body.sha) payload.sha = body.sha
-  const response = await github(auth.token, repoPath(auth.login, env.GITHUB_DATA_PATH), { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) })
-  if (response.status === 409 || response.status === 422) return json({ error: "远端数据已更新" }, 409)
-  if (!response.ok) return json({ error: "保存 GitHub 数据失败" }, response.status)
-  const result = await response.json() as { content?: { sha?: string } }
-  return json({ sha: result.content?.sha })
+  const available = await repositoryAvailable(auth)
+  if (available === false) return json({ error: "找不到可用的 bangumi-trace-data 仓库", code: "DATA_REPOSITORY_UNAVAILABLE" }, 404)
+  if (available === null) return json({ error: "检查 GitHub 数据仓库失败" }, 502)
+  const fileResponse = await github(auth.token, `${repoPath(auth.login, env.GITHUB_DATA_PATH)}?ref=${encodeURIComponent(env.GITHUB_BRANCH)}`)
+  if (fileResponse.status !== 404) {
+    if (!fileResponse.ok) return json({ error: "读取 GitHub 数据失败" }, fileResponse.status)
+    const file = await fileResponse.json() as { sha: string }
+    if (file.sha !== body.sha) return json({ error: "远端数据已更新" }, 409)
+  } else if (body.sha !== null) return json({ error: "远端数据已更新" }, 409)
+
+  try {
+    const head = await currentHead(env, auth)
+    const commit = await githubJson<{ tree: { sha: string }; parents: { sha: string }[]; committer: { date: string } }>(auth.token, `${repoBase(auth.login)}/git/commits/${head.object.sha}`)
+    const blob = await createGitObject<{ sha: string }>(auth, "blobs", { content: toBase64(encoder.encode(content)), encoding: "base64" })
+    const tree = await createGitObject<{ sha: string }>(auth, "trees", { base_tree: commit.tree.sha, tree: [{ path: env.GITHUB_DATA_PATH, mode: "100644", type: "blob", sha: blob.sha }] })
+    const { amend, parents } = saveParents(head.object.sha, commit.parents.map((parent) => parent.sha), commit.committer.date, new Date().toISOString())
+    const created = await createGitObject<{ sha: string }>(auth, "commits", { message: "Update bangumi data", tree: tree.sha, parents })
+    await updateHead(env, auth, head.object.sha, created.sha, amend)
+    await compactHistory(env, auth, created.sha)
+    return json({ sha: blob.sha })
+  } catch (error) {
+    const status = (error as { status?: number }).status
+    return status === 409 ? json({ error: "远端数据已更新" }, 409) : json({ error: "保存 GitHub 数据失败" }, status && status >= 400 && status < 600 ? status : 502)
+  }
 }
 async function search(request: Request) {
   const query = new URL(request.url).searchParams.get("q")?.trim()

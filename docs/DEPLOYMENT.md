@@ -97,13 +97,15 @@ npx wrangler tail --status error
 
 ## 6. 使用与迁移个人数据
 
-1. 使用者在自己的 GitHub 个人账号下创建私有仓库 `bangumi-trace-data`。
-2. 从 GitHub App 的公开安装页安装 App，选择 **Only select repositories**，只授权 `bangumi-trace-data`。
+1. 使用者在自己的 GitHub 个人账号下创建私有仓库 `bangumi-trace-data`，创建时勾选 README，使默认 `main` 分支立即可用。
+2. 从 GitHub App 的公开安装页安装 App，选择 **Only select repositories**，只授权 `bangumi-trace-data`。仓库名称必须完全一致，且 App 的 **Contents** 权限必须为 **Read and write**。
 3. 登录应用，打开“设置与导入”。Worker 会使用当前登录用户名定位该用户的 `bangumi-trace-data`，无需配置用户白名单或仓库 owner。
 4. 先选择本机 `bangumi.json`，核对预览数量。
 5. 再选择 `bangumi-history.json`；历史推导事件的观看时间保持未知。
 6. 在界面人工校对标题、状态和候选事件，下载或另存本地备份后再点击“保存到 GitHub”。
 7. 在 `bangumi-trace-data` 确认只新增 `data/bangumi-app.json`，应用代码仓库中没有任何迁移文件。
+
+登录后若出现“找不到可用的数据仓库”，请依次确认仓库已创建、仓库位于当前登录账号下、默认 `main` 分支存在，并在 GitHub App 安装设置中重新勾选该仓库。修正后返回应用点击“重试”。
 
 ## 7. 验证与回滚
 

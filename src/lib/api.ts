@@ -2,7 +2,10 @@ import { emptyData, isBangumiData, type BangumiData } from "./model"
 const origin = (import.meta.env.PUBLIC_WORKER_ORIGIN || "http://localhost:8787").replace(/\/$/, "")
 async function request(path: string, init?: RequestInit) {
   const response = await fetch(`${origin}${path}`, { credentials: "include", ...init })
-  if (!response.ok) throw Object.assign(new Error((await response.json().catch(() => null))?.error || response.statusText), { status: response.status })
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { error?: string; code?: string } | null
+    throw Object.assign(new Error(body?.error || response.statusText), { status: response.status, code: body?.code })
+  }
   return response
 }
 export const loginUrl = `${origin}/auth/login`
