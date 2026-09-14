@@ -31,6 +31,8 @@ export function validData(value: unknown) {
       !item.watchedAt || typeof item.watchedAt !== "object") return false
     const watchedAt = item.watchedAt as Record<string, unknown>
     if (watchedAt.precision === "exact" || watchedAt.precision === "day") return typeof watchedAt.value === "string" && !Number.isNaN(Date.parse(watchedAt.value))
+    if (watchedAt.precision === "month") return typeof watchedAt.value === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(watchedAt.value)
+    if (watchedAt.precision === "year") return typeof watchedAt.value === "string" && /^\d{4}$/.test(watchedAt.value)
     if (watchedAt.precision === "range") return typeof watchedAt.from === "string" && typeof watchedAt.to === "string" && typeof watchedAt.label === "string" && Boolean(watchedAt.label.trim()) && !Number.isNaN(Date.parse(watchedAt.from)) && !Number.isNaN(Date.parse(watchedAt.to))
     return watchedAt.precision === "unknown"
   })

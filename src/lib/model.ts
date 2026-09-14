@@ -1,5 +1,5 @@
 export type Status = "planned" | "watching" | "completed" | "dropped"
-export type Precision = "exact" | "day" | "range" | "unknown"
+export type Precision = "exact" | "day" | "month" | "year" | "unknown"
 
 export interface Volume {
   id: string
@@ -24,6 +24,8 @@ export interface WatchEvent {
   watchedAt:
     | { precision: "exact"; value: string }
     | { precision: "day"; value: string }
+    | { precision: "month"; value: string }
+    | { precision: "year"; value: string }
     | { precision: "range"; from: string; to: string; label: string }
     | { precision: "unknown" }
   recordedAt: string
@@ -65,7 +67,7 @@ function validEvent(value: unknown, volumes: Map<string, { volume: Volume; showI
     Number(episodes!.to) >= Number(episodes!.from) && Number(episodes!.to) <= target.volume.episodeCount &&
     typeof event.recordedAt === "string" && ["manual", "import-inferred"].includes(String(event.source)) &&
     !!event.watchedAt && typeof event.watchedAt === "object" &&
-    ["exact", "day", "range", "unknown"].includes(String((event.watchedAt as Record<string, unknown>).precision))
+    ["exact", "day", "month", "year", "range", "unknown"].includes(String((event.watchedAt as Record<string, unknown>).precision))
 }
 
 export function uniqueTitles(primary: string, titles: string[]): [string, ...string[]] {
@@ -80,12 +82,9 @@ export const matchesTitle = (show: Show, query: string) => {
   return !needle || show.title.some((title) => title.toLocaleLowerCase().includes(needle))
 }
 
-export function reorderTitle(show: Show, from: number, to: number): Show {
-  if (from < 0 || to < 0 || from >= show.title.length || to >= show.title.length) return show
-  const title = [...show.title] as [string, ...string[]]
-  const [moved] = title.splice(from, 1)
-  title.splice(to, 0, moved)
-  return { ...show, title }
+export function setDefaultTitle(show: Show, index: number): Show {
+  if (index <= 0 || index >= show.title.length) return show
+  return { ...show, title: [show.title[index], ...show.title.filter((_, item) => item !== index)] }
 }
 
 const numerals = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十"]
@@ -120,7 +119,7 @@ export function nextVolumeEpisode(data: BangumiData, show: Show) {
 }
 
 export function eventTime(event: WatchEvent) {
-  if (event.watchedAt.precision === "exact" || event.watchedAt.precision === "day") return Date.parse(event.watchedAt.value)
+  if (["exact", "day", "month", "year"].includes(event.watchedAt.precision)) return Date.parse((event.watchedAt as { value: string }).value)
   if (event.watchedAt.precision === "range") return Date.parse(event.watchedAt.to)
   return Date.parse(event.recordedAt)
 }

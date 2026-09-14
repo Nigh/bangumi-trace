@@ -26,7 +26,10 @@ describe("data boundary", () => {
     expect(validData({ ...data, shows: [{ ...data.shows[0], note: "" }] })).toBe(true)
     expect(validData({ ...data, version: 2 })).toBe(false)
     expect(validData({ ...data, shows: [{ ...data.shows[0], note: "x".repeat(2049) }] })).toBe(false)
+    expect(validData({ ...data, watchEvents: [{ ...data.watchEvents[0], watchedAt: { precision: "month", value: "2026-09" } }] })).toBe(true)
+    expect(validData({ ...data, watchEvents: [{ ...data.watchEvents[0], watchedAt: { precision: "year", value: "2026" } }] })).toBe(true)
     expect(validData({ ...data, watchEvents: [{ ...data.watchEvents[0], episodes: { volumeId: "missing", from: 1, to: 1 } }] })).toBe(false)
+    expect(validData({ ...data, watchEvents: [{ ...data.watchEvents[0], watchedAt: { precision: "year", value: "20" } }] })).toBe(false)
   })
 })
 

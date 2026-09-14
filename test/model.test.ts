@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { emptyData, expandedEpisodes, isBangumiData, mapCumulativeEpisode, matchesTitle, nextEpisode, nextVolumeEpisode, reorderTitle, sortShowsByActivity, uniqueTitles, volumeLabel, type BangumiData, type Show } from "../src/lib/model"
+import { emptyData, expandedEpisodes, isBangumiData, mapCumulativeEpisode, matchesTitle, nextEpisode, nextVolumeEpisode, setDefaultTitle, sortShowsByActivity, uniqueTitles, volumeLabel, type BangumiData, type Show } from "../src/lib/model"
 
 const show: Show = {
   id: "show-1", title: ["默认标题", "Japanese title", "English Title"], status: "watching",
@@ -12,7 +12,7 @@ const show: Show = {
 
 describe("title arrays", () => {
   it("uses the first item as display title and searches every item", () => {
-    expect(reorderTitle(show, 2, 0).title[0]).toBe("English Title")
+    expect(setDefaultTitle(show, 2).title).toEqual(["English Title", "默认标题", "Japanese title"])
     expect(matchesTitle(show, "japanese")).toBe(true)
     expect(uniqueTitles("默认标题", ["默认标题", "別名"])).toEqual(["默认标题", "別名"])
   })
