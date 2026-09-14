@@ -1,12 +1,18 @@
 export type Status = "planned" | "watching" | "completed" | "dropped"
 export type Precision = "exact" | "day" | "range" | "unknown"
 
+export interface Volume {
+  id: string
+  type: string
+  episodeCount: number
+}
+
 export interface Show {
   id: string
   title: [string, ...string[]]
   status: Status
+  volumes: Volume[]
   externalRef?: { provider: "bangumi"; id: string }
-  numbering?: { seasons: { season: number; absoluteStart: number }[] }
   notes?: string[]
   import?: { raw?: string; source?: string }
 }
@@ -14,7 +20,7 @@ export interface Show {
 export interface WatchEvent {
   id: string
   showId: string
-  episodes: { season?: number; from?: number; to?: number; absoluteFrom?: number; absoluteTo?: number }
+  episodes: { volumeId: string; from: number; to: number }
   watchedAt:
     | { precision: "exact"; value: string }
     | { precision: "day"; value: string }
@@ -26,19 +32,39 @@ export interface WatchEvent {
   sourceCommit?: string
 }
 
-export interface BangumiData { version: 1; shows: Show[]; watchEvents: WatchEvent[] }
-export const emptyData = (): BangumiData => ({ version: 1, shows: [], watchEvents: [] })
+export interface BangumiData { version: 2; shows: Show[]; watchEvents: WatchEvent[] }
+export const emptyData = (): BangumiData => ({ version: 2, shows: [], watchEvents: [] })
 
 export function isBangumiData(value: unknown): value is BangumiData {
   if (!value || typeof value !== "object") return false
   const data = value as Record<string, unknown>
-  return data.version === 1 && Array.isArray(data.shows) && Array.isArray(data.watchEvents) && data.shows.every((show) => {
-    if (!show || typeof show !== "object" || "aliases" in show) return false
-    const item = show as Record<string, unknown>
-    return typeof item.id === "string" && Array.isArray(item.title) && item.title.length > 0 &&
-      item.title.every((title) => typeof title === "string" && title.trim().length > 0) &&
-      ["planned", "watching", "completed", "dropped"].includes(String(item.status))
-  })
+  if (data.version !== 2 || !Array.isArray(data.shows) || !Array.isArray(data.watchEvents)) return false
+  const shows = data.shows as Record<string, unknown>[]
+  if (!shows.every((show) => typeof show?.id === "string" && Array.isArray(show.title) && show.title.length > 0 &&
+    show.title.every((title) => typeof title === "string" && title.trim()) &&
+    ["planned", "watching", "completed", "dropped"].includes(String(show.status)) && Array.isArray(show.volumes) &&
+    show.volumes.every((volume) => validVolume(volume)))) return false
+  const volumes = new Map(shows.flatMap((show) => (show.volumes as Volume[]).map((volume) => [volume.id, { volume, showId: show.id }])))
+  return data.watchEvents.every((event) => validEvent(event, volumes))
+}
+
+function validVolume(value: unknown): value is Volume {
+  if (!value || typeof value !== "object") return false
+  const volume = value as Record<string, unknown>
+  return typeof volume.id === "string" && typeof volume.type === "string" && Boolean(volume.type.trim()) &&
+    Number.isInteger(volume.episodeCount) && Number(volume.episodeCount) > 0
+}
+
+function validEvent(value: unknown, volumes: Map<string, { volume: Volume; showId: unknown }>) {
+  if (!value || typeof value !== "object") return false
+  const event = value as Record<string, unknown>, episodes = event.episodes as Record<string, unknown> | undefined
+  const target = episodes && volumes.get(String(episodes.volumeId))
+  return typeof event.id === "string" && typeof event.showId === "string" && target?.showId === event.showId &&
+    Number.isInteger(episodes?.from) && Number.isInteger(episodes?.to) && Number(episodes!.from) > 0 &&
+    Number(episodes!.to) >= Number(episodes!.from) && Number(episodes!.to) <= target.volume.episodeCount &&
+    typeof event.recordedAt === "string" && ["manual", "import-inferred"].includes(String(event.source)) &&
+    !!event.watchedAt && typeof event.watchedAt === "object" &&
+    ["exact", "day", "range", "unknown"].includes(String((event.watchedAt as Record<string, unknown>).precision))
 }
 
 export function uniqueTitles(primary: string, titles: string[]): [string, ...string[]] {
@@ -61,30 +87,54 @@ export function reorderTitle(show: Show, from: number, to: number): Show {
   return { ...show, title }
 }
 
-export function nextEpisodes(data: BangumiData, show: Show) {
+const numerals = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十"]
+const ordinal = (value: number) => value <= 10 ? numerals[value] : String(value)
+
+export function volumeLabel(show: Show, volume: Volume) {
+  const index = show.volumes.filter((item) => item.type === volume.type).indexOf(volume) + 1
+  return volume.type === "正剧" ? `第${ordinal(index)}季` : `${volume.type} ${index}`
+}
+
+export function mapCumulativeEpisode(show: Show, type: string, episode: number) {
+  let rest = episode
+  for (const volume of show.volumes.filter((item) => item.type === type)) {
+    if (rest <= volume.episodeCount) return { volumeId: volume.id, episode: rest }
+    rest -= volume.episodeCount
+  }
+  return null
+}
+
+export function nextEpisode(data: BangumiData, volume: Volume) {
+  const watched = data.watchEvents.filter((event) => event.episodes.volumeId === volume.id)
+    .reduce((maximum, event) => Math.max(maximum, event.episodes.to), 0)
+  return watched < volume.episodeCount ? watched + 1 : null
+}
+
+export function nextVolumeEpisode(data: BangumiData, show: Show) {
   const latest = [...data.watchEvents].reverse().find((event) => event.showId === show.id)
-  if (!latest) return { season: 1, from: 1, to: 1 }
-  const episodes = latest.episodes
-  const result: WatchEvent["episodes"] = {}
-  if (episodes.season && episodes.to) Object.assign(result, { season: episodes.season, from: episodes.to + 1, to: episodes.to + 1 })
-  if (episodes.absoluteTo) Object.assign(result, { absoluteFrom: episodes.absoluteTo + 1, absoluteTo: episodes.absoluteTo + 1 })
-  return result
+  const start = Math.max(0, show.volumes.findIndex((volume) => volume.id === latest?.episodes.volumeId))
+  const ordered = [...show.volumes.slice(start), ...show.volumes.slice(0, start)]
+  const volume = ordered.find((item) => nextEpisode(data, item) !== null)
+  return volume ? { volume, episode: nextEpisode(data, volume)! } : null
 }
 
-export function withEpisodeMapping(show: Show, episodes: WatchEvent["episodes"]) {
-  const mapping = show.numbering?.seasons.find((item) => item.season === episodes.season)
-  if (!mapping) return episodes
-  const result = { ...episodes }
-  if (episodes.from && !episodes.absoluteFrom) result.absoluteFrom = mapping.absoluteStart + episodes.from - 1
-  if (episodes.to && !episodes.absoluteTo) result.absoluteTo = mapping.absoluteStart + episodes.to - 1
-  if (episodes.absoluteFrom && !episodes.from) result.from = episodes.absoluteFrom - mapping.absoluteStart + 1
-  if (episodes.absoluteTo && !episodes.to) result.to = episodes.absoluteTo - mapping.absoluteStart + 1
-  return result
+export function eventTime(event: WatchEvent) {
+  if (event.watchedAt.precision === "exact" || event.watchedAt.precision === "day") return Date.parse(event.watchedAt.value)
+  if (event.watchedAt.precision === "range") return Date.parse(event.watchedAt.to)
+  return Date.parse(event.recordedAt)
 }
 
-export function episodeLabel(event: WatchEvent) {
-  const e = event.episodes
-  const season = e.season && e.from ? `S${e.season}E${String(e.from).padStart(2, "0")}${e.to && e.to !== e.from ? `–E${String(e.to).padStart(2, "0")}` : ""}` : ""
-  const absolute = e.absoluteFrom ? `第 ${e.absoluteFrom}${e.absoluteTo && e.absoluteTo !== e.absoluteFrom ? `–${e.absoluteTo}` : ""} 话` : ""
-  return [season, absolute].filter(Boolean).join(" / ") || "未指定集数"
+export function sortShowsByActivity(data: BangumiData, shows: Show[]) {
+  const latest = new Map<string, number>()
+  for (const event of data.watchEvents) latest.set(event.showId, Math.max(latest.get(event.showId) ?? -Infinity, eventTime(event)))
+  return [...shows].sort((a, b) => (latest.get(b.id) ?? -Infinity) - (latest.get(a.id) ?? -Infinity))
 }
+
+export function episodeLabel(show: Show, event: WatchEvent) {
+  const volume = show.volumes.find((item) => item.id === event.episodes.volumeId)
+  const range = event.episodes.to === event.episodes.from ? `${event.episodes.from}` : `${event.episodes.from}–${event.episodes.to}`
+  return volume ? `${volumeLabel(show, volume)}第 ${range} 话` : `第 ${range} 话`
+}
+
+export const expandedEpisodes = (event: WatchEvent) =>
+  Array.from({ length: event.episodes.to - event.episodes.from + 1 }, (_, index) => event.episodes.from + index)
