@@ -10,9 +10,9 @@ export default defineConfig({
     AstroPWA({
       registerType: 'autoUpdate',
       manifest: {
-        name: 'Astro PWA Starter',
-        short_name: 'AstroPWA',
-        description: 'Astro + Svelte + Tailwind + DaisyUI PWA',
+        name: 'Bangumi Trace',
+        short_name: 'Bangumi Trace',
+        description: 'Personal anime watch history',
         theme_color: '#353535',
         background_color: '#353535',
         display: 'standalone',
@@ -30,7 +30,6 @@ export default defineConfig({
         ],
       },
       workbox: {
-        navigateFallback: '/404',
         globPatterns: ['**/*.{css,js,html,svg,png,ico,txt}'],
       },
       devOptions: {
