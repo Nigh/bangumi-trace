@@ -30,7 +30,7 @@ cp .dev.vars.example .dev.vars
 
 - `GITHUB_CLIENT_ID`、`GITHUB_CLIENT_SECRET`：刚创建的 GitHub App 凭据。
 - `SESSION_SECRET`：32 个随机字节的 base64；运行 `openssl rand -base64 32` 生成。
-- `FRONTEND_ORIGIN`：本地前端 origin，保留 `http://localhost:4321`；不要带末尾 `/`。
+- `FRONTEND_ORIGIN`：完整前端 URL；本地保留 `http://localhost:4321`。部署到项目 Pages 时必须包含路径，例如 `https://<USER>.github.io/bangumi-trace/`。
 
 非敏感的 `GITHUB_BRANCH` 和 `GITHUB_DATA_PATH` 已在 `worker/wrangler.jsonc` 中分别设为 `main` 和 `data/bangumi-app.json`；如需修改，直接编辑该配置文件。
 
@@ -92,7 +92,7 @@ npx wrangler tail --status error
 推送 `main` 后，`Deploy frontend` workflow 会构建并发布 `dist/`。它使用 GitHub 自动提供的短期 `GITHUB_TOKEN`，无需创建个人 access token。发布完成后：
 
 1. 把 GitHub App 的 Homepage URL 改为 Pages 的最终地址。
-2. 把 Pages 的最终 origin 精确写入 Worker 的 `FRONTEND_ORIGIN` secret。
+2. 把 Pages 的完整最终 URL（包括 `/bangumi-trace/` 路径）写入 Worker 的 `FRONTEND_ORIGIN` secret。
 3. 重新部署 Worker。
 
 ## 6. 使用与迁移个人数据
