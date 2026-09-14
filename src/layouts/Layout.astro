@@ -1,0 +1,47 @@
+---
+import { ClientRouter } from 'astro:transitions';
+import { pwaInfo } from "virtual:pwa-info"
+import ReloadPrompt from "../components/ReloadPrompt.svelte"
+import ThemeToggle from "../components/ThemeToggle.svelte"
+import "../styles/global.css"
+
+interface Props {
+	title: string
+}
+
+const { title } = Astro.props
+const baseUrl = import.meta.env.BASE_URL
+const assetBaseUrl = baseUrl.replace(/\/$/, "")
+---
+
+<!doctype html>
+<html lang="en" data-theme="xianii">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="description" content="Astro description" />
+		<meta name="viewport" content="width=device-width" />
+		<link rel="icon" type="image/svg+xml" href={`${assetBaseUrl}/favicon.svg`} />
+		<meta name="generator" content={Astro.generator} />
+		<title>{title}</title>
+		<script is:inline>
+			// Apply saved theme before paint to avoid flash
+			(() => {
+				const saved = localStorage.getItem("theme");
+				const theme =
+					saved === "xianii" || saved === "xianii-light"
+						? saved
+						: saved === "xianii-dark"
+							? "xianii"
+							: null;
+				if (theme) document.documentElement.setAttribute("data-theme", theme);
+			})();
+		</script>
+		<ClientRouter />
+		{pwaInfo && <Fragment set:html={pwaInfo.webManifest.linkTag} />}
+	</head>
+	<body>
+		<ThemeToggle client:load />
+		<slot />
+		<ReloadPrompt client:load />
+	</body>
+</html>

@@ -1,0 +1,17 @@
+@import "tailwindcss";
+@plugin "daisyui";
+@import "@xianii/design-system/theme.css";
+
+@theme {
+	--text-xs: 0.8rem;
+	--text-sm: 0.9rem;
+	--text-md: 1.0rem;
+	--text-lg: 1.15rem;
+	--text-lg: 1.25rem;
+	--text-xl: 1.5rem;
+	--text-2xl: 1.875rem;
+	--text-3xl: 2.25rem;
+	--text-4xl: 3rem;
+	--text-5xl: 3.75rem;
+	--text-6xl: 4.5rem;
+}
