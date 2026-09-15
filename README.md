@@ -4,7 +4,7 @@
 
 # Bangumi Trace
 
-移动端优先的个人番剧与逐话观看记录 PWA。数据保存在用户自己的 GitHub 私有仓库 `bangumi-trace-data`；独立的 Cloudflare Worker 负责 GitHub App 登录、并发安全的文件更新和 Bangumi 元数据搜索。
+移动端优先的个人番剧与逐话观看记录 PWA。数据保存在用户自己的 GitHub 私有仓库 `bangumi-trace-data`；独立的 Cloudflare Worker 负责 GitHub App 登录、并发安全的文件更新和 TMDB 元数据搜索（动画罗马字缺失时回退 AniList）。
 
 ## 本地开发
 

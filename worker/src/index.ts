@@ -176,11 +176,51 @@ async function putData(env: Env, request: Request, auth: Session) {
     return status === 409 ? json({ error: "远端数据已更新" }, 409) : json({ error: "保存 GitHub 数据失败" }, status && status >= 400 && status < 600 ? status : 502)
   }
 }
-async function search(request: Request) {
+type TmdbSeries = {
+  id: number
+  name: string
+  original_name: string
+  original_language: string
+  first_air_date?: string
+  poster_path?: string
+  seasons?: { season_number: number; name: string; episode_count: number; air_date?: string }[]
+  translations?: { translations?: { iso_639_1: string; iso_3166_1: string; data: { name?: string } }[] }
+  alternative_titles?: { results?: { iso_3166_1: string; title: string }[] }
+}
+
+async function tmdb<T>(env: Env, path: string) {
+  const response = await fetch(`https://api.themoviedb.org/3${path}`, { headers: { Authorization: `Bearer ${env.TMDB_API_TOKEN}`, Accept: "application/json" } })
+  if (!response.ok) throw new Error(`TMDB API ${response.status}`)
+  return response.json() as Promise<T>
+}
+
+async function searchTmdb(env: Env, request: Request) {
   const query = new URL(request.url).searchParams.get("q")?.trim()
   if (!query || query.length > 100) return json({ error: "搜索词无效" }, 400)
-  const response = await fetch("https://api.bgm.tv/v0/search/subjects?limit=10&offset=0", { method: "POST", headers: { "content-type": "application/json", "User-Agent": "bangumi-trace/1.0" }, body: JSON.stringify({ keyword: query, filter: { type: [2] } }) })
-  return response.ok ? new Response(response.body, { headers: { "content-type": "application/json" } }) : json({ error: "Bangumi 搜索暂不可用" }, 502)
+  try {
+    const result = await tmdb<{ results: TmdbSeries[] }>(env, `/search/tv?query=${encodeURIComponent(query)}&language=zh-CN&include_adult=false`)
+    return json({ data: result.results.slice(0, 10).map((item) => ({ id: item.id, name: item.name, originalName: item.original_name, firstAirDate: item.first_air_date, poster: item.poster_path ? `https://image.tmdb.org/t/p/w185${item.poster_path}` : undefined })) })
+  } catch { return json({ error: "TMDB 搜索暂不可用" }, 502) }
+}
+
+async function anilistRomaji(title: string) {
+  try {
+    const response = await fetch("https://graphql.anilist.co", { method: "POST", headers: { "content-type": "application/json", Accept: "application/json" }, body: JSON.stringify({ query: "query ($search: String) { Media(search: $search, type: ANIME) { title { romaji } } }", variables: { search: title } }) })
+    if (!response.ok) return null
+    return ((await response.json()) as { data?: { Media?: { title?: { romaji?: string } } } }).data?.Media?.title?.romaji?.trim() || null
+  } catch { return null }
+}
+
+async function getTmdbSeries(env: Env, id: number) {
+  if (!Number.isInteger(id) || id < 1) return json({ error: "TMDB ID 无效" }, 400)
+  try {
+    const series = await tmdb<TmdbSeries>(env, `/tv/${id}?language=zh-CN&append_to_response=translations,alternative_titles`)
+    const names = (series.translations?.translations ?? []).filter((item) => item.data.name && (item.iso_639_1 === "en" || item.iso_639_1 === "ja" || item.iso_639_1 === "zh" && ["CN", "SG", "TW", "HK"].includes(item.iso_3166_1))).map((item) => item.data.name!)
+    let romaji: string | null | undefined = series.alternative_titles?.results?.find((item) => item.iso_3166_1 === "JP" && /^[\x00-\x7F]+$/.test(item.title))?.title
+    if (!romaji && series.original_language === "ja") romaji = await anilistRomaji(series.original_name)
+    const titles = [...new Set([series.name, series.original_name, ...names, romaji].filter((title): title is string => Boolean(title?.trim())))]
+    return json({ id: series.id, titles, seasons: (series.seasons ?? []).filter((season) => season.episode_count > 0 && season.episode_count <= 256).map((season) => ({ seasonNumber: season.season_number, name: season.name, episodeCount: season.episode_count, airDate: season.air_date })) })
+  } catch { return json({ error: "TMDB 条目暂不可用" }, 502) }
 }
 
 export default {
@@ -197,7 +237,8 @@ export default {
       let response: Response
       if (url.pathname === "/api/data" && request.method === "GET") response = await getData(env, auth)
       else if (url.pathname === "/api/data" && request.method === "PUT") { assertWriteRequest(env, request); response = await putData(env, request, auth) }
-      else if (url.pathname === "/api/bangumi/search" && request.method === "GET") response = await search(request)
+      else if (url.pathname === "/api/tmdb/search" && request.method === "GET") response = await searchTmdb(env, request)
+      else if (/^\/api\/tmdb\/series\/\d+$/.test(url.pathname) && request.method === "GET") response = await getTmdbSeries(env, Number(url.pathname.split("/").pop()))
       else response = json({ error: "Not found" }, 404)
       Object.entries(headers).forEach(([key, value]) => response.headers.set(key, value))
       return response

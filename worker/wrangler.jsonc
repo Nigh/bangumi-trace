@@ -12,7 +12,7 @@
   "secrets": {
     "required": [
       "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "SESSION_SECRET",
-      "FRONTEND_ORIGIN"
+      "FRONTEND_ORIGIN", "TMDB_API_TOKEN"
     ]
   }
 }

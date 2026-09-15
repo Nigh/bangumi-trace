@@ -31,6 +31,7 @@ cp .dev.vars.example .dev.vars
 - `GITHUB_CLIENT_ID`、`GITHUB_CLIENT_SECRET`：刚创建的 GitHub App 凭据。
 - `SESSION_SECRET`：32 个随机字节的 base64；运行 `openssl rand -base64 32` 生成。
 - `FRONTEND_ORIGIN`：完整前端 URL；本地保留 `http://localhost:4321`。部署到项目 Pages 时必须包含路径，例如 `https://<USER>.github.io/bangumi-trace/`。
+- `TMDB_API_TOKEN`：登录 [TMDB](https://www.themoviedb.org/) 后，在账号设置的 API 页面申请开发者 API 访问，复制 **API Read Access Token**（Bearer token）。只放入 Worker secret，不要写入前端、仓库或日志；AniList 回退使用公开 GraphQL API，无需密钥。
 
 非敏感的 `GITHUB_BRANCH` 和 `GITHUB_DATA_PATH` 已在 `worker/wrangler.jsonc` 中分别设为 `main` 和 `data/bangumi-app.json`；如需修改，直接编辑该配置文件。
 
@@ -70,9 +71,10 @@ npx wrangler secret put GITHUB_CLIENT_ID
 npx wrangler secret put GITHUB_CLIENT_SECRET
 npx wrangler secret put SESSION_SECRET
 npx wrangler secret put FRONTEND_ORIGIN
+npx wrangler secret put TMDB_API_TOKEN
 ```
 
-首次部署时 `FRONTEND_ORIGIN` 先填 `http://localhost:4321`；Pages 发布后会替换为正式地址。
+首次部署时 `FRONTEND_ORIGIN` 先填 `http://localhost:4321`，`TMDB_API_TOKEN` 填写 TMDB API Read Access Token；Pages 发布后再把前者替换为正式地址。
 
 执行 `npx wrangler secret list`，它只应显示名称。随后部署：
 

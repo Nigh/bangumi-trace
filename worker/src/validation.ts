@@ -1,9 +1,9 @@
-type Volume = { id: string; type: string; episodeCount: number }
+type Volume = { id: string; type: string; episodeCount: number; externalRef?: unknown }
 
 export function validData(value: unknown) {
   if (!value || typeof value !== "object") return false
   const data = value as { version?: unknown; shows?: unknown; watchEvents?: unknown; folders?: unknown }
-  if (data.version !== 4 || !Array.isArray(data.shows) || !Array.isArray(data.watchEvents) || !Array.isArray(data.folders)) return false
+  if (data.version !== 5 || !Array.isArray(data.shows) || !Array.isArray(data.watchEvents) || !Array.isArray(data.folders)) return false
   const volumeOwners = new Map<string, { showId: string; episodeCount: number }>()
   for (const show of data.shows) {
     if (!show || typeof show !== "object") return false
@@ -15,7 +15,8 @@ export function validData(value: unknown) {
     for (const value of item.volumes) {
       const volume = value as Partial<Volume>
       if (!value || typeof value !== "object" || typeof volume.id !== "string" || volumeOwners.has(volume.id) ||
-        typeof volume.type !== "string" || !volume.type.trim() || !Number.isInteger(volume.episodeCount) || Number(volume.episodeCount) < 1 || Number(volume.episodeCount) > 256) return false
+        typeof volume.type !== "string" || !volume.type.trim() || !Number.isInteger(volume.episodeCount) || Number(volume.episodeCount) < 1 || Number(volume.episodeCount) > 256 ||
+        volume.externalRef !== undefined && !validExternalRef(volume.externalRef)) return false
       volumeOwners.set(volume.id, { showId: item.id, episodeCount: Number(volume.episodeCount) })
     }
   }
@@ -43,4 +44,10 @@ export function validData(value: unknown) {
     if (watchedAt.precision === "range") return typeof watchedAt.from === "string" && typeof watchedAt.to === "string" && typeof watchedAt.label === "string" && Boolean(watchedAt.label.trim()) && !Number.isNaN(Date.parse(watchedAt.from)) && !Number.isNaN(Date.parse(watchedAt.to))
     return watchedAt.precision === "unknown"
   })
+}
+
+function validExternalRef(value: unknown) {
+  if (!value || typeof value !== "object") return false
+  const ref = value as Record<string, unknown>
+  return ref.provider === "tmdb" && Number.isInteger(ref.seriesId) && Number(ref.seriesId) > 0 && Number.isInteger(ref.seasonNumber) && Number(ref.seasonNumber) >= 0
 }
