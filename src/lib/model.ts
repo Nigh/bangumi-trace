@@ -5,6 +5,7 @@ export interface Volume {
   id: string
   type: string
   episodeCount: number
+  externalRef?: { provider: "tmdb"; seriesId: number; seasonNumber: number }
 }
 
 export interface Show {
@@ -12,7 +13,6 @@ export interface Show {
   title: [string, ...string[]]
   status: Status
   volumes: Volume[]
-  externalRef?: { provider: "bangumi"; id: string }
   note?: string
   import?: { raw?: string; source?: string }
 }
@@ -35,21 +35,17 @@ export interface WatchEvent {
 }
 
 export interface Folder { id: string; name: string; showIds: string[] }
-export interface BangumiData { version: 4; shows: Show[]; watchEvents: WatchEvent[]; folders: Folder[] }
-export const emptyData = (): BangumiData => ({ version: 4, shows: [], watchEvents: [], folders: [] })
+export interface BangumiData { version: 5; shows: Show[]; watchEvents: WatchEvent[]; folders: Folder[] }
+export const emptyData = (): BangumiData => ({ version: 5, shows: [], watchEvents: [], folders: [] })
 
 export function normalizeBangumiData(value: unknown): BangumiData | null {
-  if (value && typeof value === "object" && (value as { version?: unknown }).version === 3) {
-    const migrated = { ...(value as object), version: 4, folders: [] }
-    return isBangumiData(migrated) ? migrated : null
-  }
   return isBangumiData(value) ? value : null
 }
 
 export function isBangumiData(value: unknown): value is BangumiData {
   if (!value || typeof value !== "object") return false
   const data = value as Record<string, unknown>
-  if (data.version !== 4 || !Array.isArray(data.shows) || !Array.isArray(data.watchEvents) || !Array.isArray(data.folders)) return false
+  if (data.version !== 5 || !Array.isArray(data.shows) || !Array.isArray(data.watchEvents) || !Array.isArray(data.folders)) return false
   const shows = data.shows as Record<string, unknown>[]
   if (!shows.every((show) => typeof show?.id === "string" && Array.isArray(show.title) && show.title.length > 0 &&
     show.title.every((title) => typeof title === "string" && title.trim()) &&
@@ -68,7 +64,15 @@ function validVolume(value: unknown): value is Volume {
   if (!value || typeof value !== "object") return false
   const volume = value as Record<string, unknown>
   return typeof volume.id === "string" && typeof volume.type === "string" && Boolean(volume.type.trim()) &&
-    Number.isInteger(volume.episodeCount) && Number(volume.episodeCount) > 0 && Number(volume.episodeCount) <= 256
+    Number.isInteger(volume.episodeCount) && Number(volume.episodeCount) > 0 && Number(volume.episodeCount) <= 256 &&
+    (volume.externalRef === undefined || validExternalRef(volume.externalRef))
+}
+
+function validExternalRef(value: unknown) {
+  if (!value || typeof value !== "object") return false
+  const ref = value as Record<string, unknown>
+  return ref.provider === "tmdb" && Number.isInteger(ref.seriesId) && Number(ref.seriesId) > 0 &&
+    Number.isInteger(ref.seasonNumber) && Number(ref.seasonNumber) >= 0
 }
 
 function validEvent(value: unknown, volumes: Map<string, { volume: Volume; showId: unknown }>) {

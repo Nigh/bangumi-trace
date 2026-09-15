@@ -53,19 +53,21 @@ describe("volumes and activity", () => {
 })
 
 describe("validation", () => {
-  it("accepts version 4 and rejects old, oversized, or dangling data", () => {
+  it("accepts version 5 and rejects old, oversized, or dangling data", () => {
     const data: BangumiData = { ...emptyData(), shows: [show], watchEvents: [event("s1", 1, "2026-09-12")] }
     expect(isBangumiData(data)).toBe(true)
     expect(isBangumiData({ ...data, shows: [{ ...show, note: "" }] })).toBe(true)
-    expect(isBangumiData({ ...data, version: 3 })).toBe(false)
+    expect(isBangumiData({ ...data, shows: [{ ...show, volumes: [{ ...show.volumes[0], externalRef: { provider: "tmdb", seriesId: 42, seasonNumber: 1 } }] }] })).toBe(true)
+    expect(isBangumiData({ ...data, shows: [{ ...show, volumes: [{ ...show.volumes[0], externalRef: { provider: "bangumi", id: "1" } }] }] })).toBe(false)
+    expect(isBangumiData({ ...data, version: 4 })).toBe(false)
     expect(isBangumiData({ ...data, shows: [{ ...show, note: "x".repeat(2049) }] })).toBe(false)
     expect(isBangumiData({ ...data, shows: [{ ...show, volumes: [{ id: "huge", type: "正剧", episodeCount: 257 }] }] })).toBe(false)
     expect(isBangumiData({ ...data, watchEvents: [{ ...data.watchEvents[0], episodes: { volumeId: "missing", from: 1, to: 1 } }] })).toBe(false)
   })
-  it("migrates version 3 and validates folder mappings", () => {
+  it("rejects version 4 and validates folder mappings", () => {
     const current = { ...emptyData(), shows: [show] }
-    const legacy = { version: 3, shows: current.shows, watchEvents: current.watchEvents }
-    expect(normalizeBangumiData(legacy)).toEqual({ ...legacy, version: 4, folders: [] })
+    const legacy = { version: 4, shows: current.shows, watchEvents: current.watchEvents }
+    expect(normalizeBangumiData(legacy)).toBeNull()
     expect(isBangumiData({ ...current, folders: [{ id: "folder-1", name: "系列", showIds: [show.id] }] })).toBe(true)
     expect(isBangumiData({ ...current, folders: [{ id: "folder-1", name: "系列", showIds: ["missing"] }] })).toBe(false)
     expect(isBangumiData({ ...current, folders: [{ id: "folder-1", name: "系列", showIds: [show.id] }, { id: "folder-2", name: "重复", showIds: [show.id] }] })).toBe(false)

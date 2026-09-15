@@ -5,6 +5,7 @@ import { validData } from "../src/validation"
 
 const env = {
   FRONTEND_ORIGIN: "https://nigh.github.io/bangumi-trace/",
+  TMDB_API_TOKEN: "tmdb-token",
   GITHUB_CLIENT_ID: "client",
   GITHUB_CLIENT_SECRET: "secret",
   SESSION_SECRET: btoa("12345678901234567890123456789012"),
@@ -13,7 +14,7 @@ const env = {
 } as Env
 
 const data = {
-  version: 4,
+  version: 5,
   folders: [],
   shows: [{ id: "show-1", title: ["Primary", "Alternative"], status: "watching", volumes: [{ id: "s1", type: "正剧", episodeCount: 12 }] }],
   watchEvents: [{ id: "event-1", showId: "show-1", episodes: { volumeId: "s1", from: 1, to: 1 }, watchedAt: { precision: "day", value: "2026-09-14" }, recordedAt: "2026-09-14T12:00:00Z", source: "manual" }],
@@ -22,12 +23,14 @@ const data = {
 afterEach(() => vi.unstubAllGlobals())
 
 describe("data boundary", () => {
-  it("accepts version 4 and rejects old, oversized, or dangling data", () => {
+  it("accepts version 5 and rejects old, oversized, or dangling data", () => {
     expect(validData(data)).toBe(true)
     expect(validData({ ...data, shows: [{ ...data.shows[0], note: "" }] })).toBe(true)
+    expect(validData({ ...data, shows: [{ ...data.shows[0], volumes: [{ ...data.shows[0].volumes[0], externalRef: { provider: "tmdb", seriesId: 42, seasonNumber: 1 } }] }] })).toBe(true)
+    expect(validData({ ...data, shows: [{ ...data.shows[0], volumes: [{ ...data.shows[0].volumes[0], externalRef: { provider: "bangumi", id: "1" } }] }] })).toBe(false)
     expect(validData({ ...data, folders: [{ id: "folder-1", name: "系列", showIds: ["show-1"] }] })).toBe(true)
     expect(validData({ ...data, folders: [{ id: "folder-1", name: "系列", showIds: ["missing"] }] })).toBe(false)
-    expect(validData({ ...data, version: 3 })).toBe(false)
+    expect(validData({ ...data, version: 4 })).toBe(false)
     expect(validData({ ...data, shows: [{ ...data.shows[0], note: "x".repeat(2049) }] })).toBe(false)
     expect(validData({ ...data, shows: [{ ...data.shows[0], volumes: [{ id: "huge", type: "正剧", episodeCount: 257 }] }] })).toBe(false)
     expect(validData({ ...data, watchEvents: [{ ...data.watchEvents[0], watchedAt: { precision: "month", value: "2026-09" } }] })).toBe(true)
@@ -56,6 +59,20 @@ describe("frontend URL", () => {
     const response = await worker.fetch(request, env)
     expect(response.status).toBe(204)
     expect(response.headers.get("access-control-allow-origin")).toBe("https://nigh.github.io")
+  })
+})
+
+describe("TMDB metadata", () => {
+  it("returns localized titles, AniList romaji, and seasons", async () => {
+    const cookie = await loginCookie()
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = String(input)
+      if (url.includes("api.themoviedb.org/3/tv/42")) return Response.json({ id: 42, name: "葬送的芙莉莲", original_name: "葬送のフリーレン", original_language: "ja", seasons: [{ season_number: 1, name: "第 1 季", episode_count: 28, air_date: "2023-09-29" }], translations: { translations: [{ iso_639_1: "zh", iso_3166_1: "TW", data: { name: "葬送的芙莉蓮" } }, { iso_639_1: "en", iso_3166_1: "US", data: { name: "Frieren: Beyond Journey's End" } }] }, alternative_titles: { results: [] } })
+      if (url === "https://graphql.anilist.co") return Response.json({ data: { Media: { title: { romaji: "Sousou no Frieren" } } } })
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+    const response = await worker.fetch(new Request("https://worker.test/api/tmdb/series/42", { headers: { Origin: "https://nigh.github.io", Cookie: cookie } }), env)
+    expect(await response.json()).toEqual({ id: 42, titles: ["葬送的芙莉莲", "葬送のフリーレン", "葬送的芙莉蓮", "Frieren: Beyond Journey's End", "Sousou no Frieren"], seasons: [{ seasonNumber: 1, name: "第 1 季", episodeCount: 28, airDate: "2023-09-29" }] })
   })
 })
 
