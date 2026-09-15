@@ -16,9 +16,7 @@ const toBase64 = (bytes: Uint8Array) => {
   return btoa(binary)
 }
 const getCookie = (request: Request, name: string) => request.headers.get("cookie")?.split(/;\s*/).find((item) => item.startsWith(`${name}=`))?.slice(name.length + 1)
-const cookie = (name: string, value: string, maxAge: number) => `${name}=${value}; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=${maxAge}`
-const frontendUrl = (env: Env) => env.FRONTEND_ORIGIN.endsWith("/") ? env.FRONTEND_ORIGIN.slice(0, -1) : env.FRONTEND_ORIGIN
-const frontendOrigin = (env: Env) => new URL(frontendUrl(env)).origin
+const cookie = (name: string, value: string, maxAge: number) => `${name}=${value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`
 
 async function key(env: Env) {
   const bytes = Uint8Array.from(atob(env.SESSION_SECRET), (char) => char.charCodeAt(0))
@@ -40,12 +38,8 @@ async function open<T>(env: Env, value?: string): Promise<T | null> {
 async function challenge(verifier: string) {
   return base64url(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(verifier))))
 }
-function cors(env: Env, request: Request) {
-  const origin = request.headers.get("origin")
-  return origin === frontendOrigin(env) ? { "access-control-allow-origin": origin, "access-control-allow-credentials": "true", "access-control-allow-headers": "content-type", "access-control-allow-methods": "GET, PUT, POST, OPTIONS", vary: "Origin" } : null
-}
-function assertWriteRequest(env: Env, request: Request) {
-  if (request.headers.get("origin") !== frontendOrigin(env)) throw new Response("Forbidden", { status: 403 })
+function assertWriteRequest(request: Request) {
+  if (request.headers.get("origin") !== new URL(request.url).origin) throw new Response("Forbidden", { status: 403 })
   if (request.method === "PUT" && !request.headers.get("content-type")?.startsWith("application/json")) throw new Response("Unsupported media type", { status: 415 })
 }
 async function session(env: Env, request: Request) {
@@ -99,7 +93,7 @@ async function callback(env: Env, request: Request) {
   if (!user.login) return json({ error: "无法读取 GitHub 用户信息" }, 502)
   const maxAge = Math.min(token.expires_in ?? 28_800, 28_800)
   const value = await seal(env, { login: user.login, token: token.access_token, expiresAt: Date.now() + maxAge * 1000 } satisfies Session)
-  const headers = new Headers({ location: frontendUrl(env) + "/#settings" })
+  const headers = new Headers({ location: new URL("/#settings", request.url).href })
   headers.append("set-cookie", cookie("bt_session", value, maxAge))
   headers.append("set-cookie", cookie("bt_oauth", "", 0))
   return new Response(null, { status: 302, headers })
@@ -225,27 +219,24 @@ async function getTmdbSeries(env: Env, id: number) {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url), headers = cors(env, request)
+    const url = new URL(request.url)
     try {
-      if (request.method === "OPTIONS") return headers ? new Response(null, { status: 204, headers }) : new Response(null, { status: 403 })
       if (url.pathname === "/auth/login" && request.method === "GET") return login(env)
       if (url.pathname === "/auth/callback" && request.method === "GET") return callback(env, request)
-      if (url.pathname === "/auth/logout" && request.method === "POST") { assertWriteRequest(env, request); return new Response(null, { status: 204, headers: { ...headers!, "set-cookie": cookie("bt_session", "", 0) } }) }
-      if (!headers) return json({ error: "Origin 不允许" }, 403)
+      if (url.pathname === "/auth/logout" && request.method === "POST") { assertWriteRequest(request); return new Response(null, { status: 204, headers: { "set-cookie": cookie("bt_session", "", 0) } }) }
       const auth = await session(env, request)
-      if (!auth) return json({ error: "未登录" }, 401, headers)
+      if (!auth) return json({ error: "未登录" }, 401)
       let response: Response
       if (url.pathname === "/api/data" && request.method === "GET") response = await getData(env, auth)
-      else if (url.pathname === "/api/data" && request.method === "PUT") { assertWriteRequest(env, request); response = await putData(env, request, auth) }
+      else if (url.pathname === "/api/data" && request.method === "PUT") { assertWriteRequest(request); response = await putData(env, request, auth) }
       else if (url.pathname === "/api/tmdb/search" && request.method === "GET") response = await searchTmdb(env, request)
       else if (/^\/api\/tmdb\/series\/\d+$/.test(url.pathname) && request.method === "GET") response = await getTmdbSeries(env, Number(url.pathname.split("/").pop()))
       else response = json({ error: "Not found" }, 404)
-      Object.entries(headers).forEach(([key, value]) => response.headers.set(key, value))
       return response
     } catch (error) {
       if (error instanceof Response) return error
       console.error(JSON.stringify({ level: "error", path: url.pathname, requestId: request.headers.get("cf-ray"), type: error instanceof Error ? error.name : "UnknownError" }))
-      return json({ error: "服务暂不可用" }, 500, headers ?? undefined)
+      return json({ error: "服务暂不可用" }, 500)
     }
   },
 } satisfies ExportedHandler<Env>

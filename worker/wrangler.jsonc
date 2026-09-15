@@ -4,6 +4,11 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-09-14",
   "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "../dist",
+    "not_found_handling": "404-page",
+    "run_worker_first": ["/api/*", "/auth/*"]
+  },
   "observability": { "enabled": true, "head_sampling_rate": 1, "traces": { "enabled": true } },
   "vars": {
     "GITHUB_BRANCH": "main",
@@ -11,8 +16,7 @@
   },
   "secrets": {
     "required": [
-      "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "SESSION_SECRET",
-      "FRONTEND_ORIGIN", "TMDB_API_TOKEN"
+      "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "SESSION_SECRET", "TMDB_API_TOKEN"
     ]
   }
 }
