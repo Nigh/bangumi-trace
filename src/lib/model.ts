@@ -34,21 +34,34 @@ export interface WatchEvent {
   sourceCommit?: string
 }
 
-export interface BangumiData { version: 3; shows: Show[]; watchEvents: WatchEvent[] }
-export const emptyData = (): BangumiData => ({ version: 3, shows: [], watchEvents: [] })
+export interface Folder { id: string; name: string; showIds: string[] }
+export interface BangumiData { version: 4; shows: Show[]; watchEvents: WatchEvent[]; folders: Folder[] }
+export const emptyData = (): BangumiData => ({ version: 4, shows: [], watchEvents: [], folders: [] })
+
+export function normalizeBangumiData(value: unknown): BangumiData | null {
+  if (value && typeof value === "object" && (value as { version?: unknown }).version === 3) {
+    const migrated = { ...(value as object), version: 4, folders: [] }
+    return isBangumiData(migrated) ? migrated : null
+  }
+  return isBangumiData(value) ? value : null
+}
 
 export function isBangumiData(value: unknown): value is BangumiData {
   if (!value || typeof value !== "object") return false
   const data = value as Record<string, unknown>
-  if (data.version !== 3 || !Array.isArray(data.shows) || !Array.isArray(data.watchEvents)) return false
+  if (data.version !== 4 || !Array.isArray(data.shows) || !Array.isArray(data.watchEvents) || !Array.isArray(data.folders)) return false
   const shows = data.shows as Record<string, unknown>[]
   if (!shows.every((show) => typeof show?.id === "string" && Array.isArray(show.title) && show.title.length > 0 &&
     show.title.every((title) => typeof title === "string" && title.trim()) &&
     ["planned", "watching", "completed", "dropped"].includes(String(show.status)) &&
     (show.note === undefined || typeof show.note === "string" && show.note.length <= 2048) && Array.isArray(show.volumes) &&
     show.volumes.every((volume) => validVolume(volume)))) return false
+  const showIds = new Set(shows.map((show) => show.id as string)), folderIds = new Set<string>(), assigned = new Set<string>()
+  const foldersValid = (data.folders as Record<string, unknown>[]).every((folder) =>
+    typeof folder?.id === "string" && !folderIds.has(folder.id) && Boolean(folderIds.add(folder.id)) && typeof folder.name === "string" && Boolean(folder.name.trim()) && Array.isArray(folder.showIds) &&
+    folder.showIds.every((id) => typeof id === "string" && showIds.has(id) && !assigned.has(id) && Boolean(assigned.add(id))))
   const volumes = new Map(shows.flatMap((show) => (show.volumes as Volume[]).map((volume) => [volume.id, { volume, showId: show.id }])))
-  return data.watchEvents.every((event) => validEvent(event, volumes))
+  return foldersValid && data.watchEvents.every((event) => validEvent(event, volumes))
 }
 
 function validVolume(value: unknown): value is Volume {
@@ -105,9 +118,8 @@ export function mapCumulativeEpisode(show: Show, type: string, episode: number) 
 }
 
 export function nextEpisode(data: BangumiData, volume: Volume) {
-  const watched = data.watchEvents.filter((event) => event.episodes.volumeId === volume.id)
-    .reduce((maximum, event) => Math.max(maximum, event.episodes.to), 0)
-  return watched < volume.episodeCount ? watched + 1 : null
+  const watched = new Set(data.watchEvents.filter((event) => event.episodes.volumeId === volume.id).flatMap(expandedEpisodes))
+  return Array.from({ length: volume.episodeCount }, (_, index) => index + 1).find((episode) => !watched.has(episode)) ?? null
 }
 
 export function nextVolumeEpisode(data: BangumiData, show: Show) {
@@ -116,6 +128,22 @@ export function nextVolumeEpisode(data: BangumiData, show: Show) {
   const ordered = [...show.volumes.slice(start), ...show.volumes.slice(0, start)]
   const volume = ordered.find((item) => nextEpisode(data, item) !== null)
   return volume ? { volume, episode: nextEpisode(data, volume)! } : null
+}
+
+export function hasWatchedAll(data: BangumiData, show: Show) {
+  if (!show.volumes.length) return false
+  return show.volumes.every((volume) => {
+    const watched = new Set(data.watchEvents.filter((event) => event.showId === show.id && event.episodes.volumeId === volume.id).flatMap(expandedEpisodes))
+    return watched.size === volume.episodeCount
+  })
+}
+
+export function statusDisplay(data: BangumiData, show: Show) {
+  const complete = hasWatchedAll(data, show)
+  if (show.status === "watching") return complete ? { label: "等待更新", badge: "badge-info" } : { label: "正在追番", badge: "badge-info" }
+  if (show.status === "completed") return complete ? { label: "全部看完", badge: "badge-success" } : { label: "标记完成", badge: "badge-warning" }
+  if (show.status === "planned") return { label: "计划观看", badge: "badge-ghost" }
+  return { label: "已经弃番", badge: "badge-neutral" }
 }
 
 export function eventTime(event: WatchEvent) {
