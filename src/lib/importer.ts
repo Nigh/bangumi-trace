@@ -10,7 +10,7 @@ export function importCurrent(value: unknown): Show[] {
   if (!Array.isArray(input?.items)) throw new Error("不是有效的 bangumi.json")
   return flatten(input.items).filter((item) => item.kind === "item" && item.title?.trim()).map((item) => ({
     id: crypto.randomUUID(), title: [item.title!.trim()], status: item.status ?? "planned",
-    volumes: [{ id: crypto.randomUUID(), type: "正剧", episodeCount: Math.max(1, item.progress ?? 1) }],
+    volumes: [{ id: crypto.randomUUID(), type: "正剧", episodeCount: Math.min(256, Math.max(1, item.progress ?? 1)) }],
     import: { raw: item.raw, source: item.source },
   }))
 }

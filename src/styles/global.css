@@ -14,3 +14,8 @@
 	--text-5xl: 3.75rem;
 	--text-6xl: 4.5rem;
 }
+
+.form-control:has(> .label-text) {
+	display: grid;
+	gap: 0.5rem;
+}

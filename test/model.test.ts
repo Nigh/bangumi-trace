@@ -21,7 +21,8 @@ describe("title arrays", () => {
 describe("volumes and activity", () => {
   it("numbers each type and maps cumulative episodes", () => {
     expect(volumeLabel(show, show.volumes[2])).toBe("第二季")
-    expect(volumeLabel(show, show.volumes[1])).toBe("OVA 1")
+    expect(volumeLabel(show, show.volumes[1])).toBe("OVA")
+    expect(volumeLabel({ ...show, volumes: [...show.volumes, { id: "ova2", type: "OVA", episodeCount: 1 }] }, show.volumes[1])).toBe("OVA 1")
     expect(mapCumulativeEpisode(show, "正剧", 13)).toEqual({ volumeId: "s2", episode: 1 })
   })
 
@@ -58,6 +59,7 @@ describe("validation", () => {
     expect(isBangumiData({ ...data, shows: [{ ...show, note: "" }] })).toBe(true)
     expect(isBangumiData({ ...data, version: 3 })).toBe(false)
     expect(isBangumiData({ ...data, shows: [{ ...show, note: "x".repeat(2049) }] })).toBe(false)
+    expect(isBangumiData({ ...data, shows: [{ ...show, volumes: [{ id: "huge", type: "正剧", episodeCount: 257 }] }] })).toBe(false)
     expect(isBangumiData({ ...data, watchEvents: [{ ...data.watchEvents[0], episodes: { volumeId: "missing", from: 1, to: 1 } }] })).toBe(false)
   })
   it("migrates version 3 and validates folder mappings", () => {

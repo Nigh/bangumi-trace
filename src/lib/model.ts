@@ -68,7 +68,7 @@ function validVolume(value: unknown): value is Volume {
   if (!value || typeof value !== "object") return false
   const volume = value as Record<string, unknown>
   return typeof volume.id === "string" && typeof volume.type === "string" && Boolean(volume.type.trim()) &&
-    Number.isInteger(volume.episodeCount) && Number(volume.episodeCount) > 0
+    Number.isInteger(volume.episodeCount) && Number(volume.episodeCount) > 0 && Number(volume.episodeCount) <= 256
 }
 
 function validEvent(value: unknown, volumes: Map<string, { volume: Volume; showId: unknown }>) {
@@ -104,8 +104,8 @@ const numerals = ["零", "一", "二", "三", "四", "五", "六", "七", "八",
 const ordinal = (value: number) => value <= 10 ? numerals[value] : String(value)
 
 export function volumeLabel(show: Show, volume: Volume) {
-  const index = show.volumes.filter((item) => item.type === volume.type).indexOf(volume) + 1
-  return volume.type === "正剧" ? `第${ordinal(index)}季` : `${volume.type} ${index}`
+  const matches = show.volumes.filter((item) => item.type === volume.type), index = matches.indexOf(volume) + 1
+  return volume.type === "正剧" ? `第${ordinal(index)}季` : matches.length === 1 ? volume.type : `${volume.type} ${index}`
 }
 
 export function mapCumulativeEpisode(show: Show, type: string, episode: number) {

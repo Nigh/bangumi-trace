@@ -15,7 +15,7 @@ export function validData(value: unknown) {
     for (const value of item.volumes) {
       const volume = value as Partial<Volume>
       if (!value || typeof value !== "object" || typeof volume.id !== "string" || volumeOwners.has(volume.id) ||
-        typeof volume.type !== "string" || !volume.type.trim() || !Number.isInteger(volume.episodeCount) || Number(volume.episodeCount) < 1) return false
+        typeof volume.type !== "string" || !volume.type.trim() || !Number.isInteger(volume.episodeCount) || Number(volume.episodeCount) < 1 || Number(volume.episodeCount) > 256) return false
       volumeOwners.set(volume.id, { showId: item.id, episodeCount: Number(volume.episodeCount) })
     }
   }

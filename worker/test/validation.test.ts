@@ -29,6 +29,7 @@ describe("data boundary", () => {
     expect(validData({ ...data, folders: [{ id: "folder-1", name: "系列", showIds: ["missing"] }] })).toBe(false)
     expect(validData({ ...data, version: 3 })).toBe(false)
     expect(validData({ ...data, shows: [{ ...data.shows[0], note: "x".repeat(2049) }] })).toBe(false)
+    expect(validData({ ...data, shows: [{ ...data.shows[0], volumes: [{ id: "huge", type: "正剧", episodeCount: 257 }] }] })).toBe(false)
     expect(validData({ ...data, watchEvents: [{ ...data.watchEvents[0], watchedAt: { precision: "month", value: "2026-09" } }] })).toBe(true)
     expect(validData({ ...data, watchEvents: [{ ...data.watchEvents[0], watchedAt: { precision: "year", value: "2026" } }] })).toBe(true)
     expect(validData({ ...data, watchEvents: [{ ...data.watchEvents[0], episodes: { volumeId: "missing", from: 1, to: 1 } }] })).toBe(false)
