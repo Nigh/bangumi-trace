@@ -4,7 +4,6 @@ import { compressionWindow, needsCompression, sameUtcDay, saveParents } from "..
 import { validData } from "../src/validation"
 
 const env = {
-  FRONTEND_ORIGIN: "https://nigh.github.io/bangumi-trace/",
   TMDB_API_TOKEN: "tmdb-token",
   GITHUB_CLIENT_ID: "client",
   GITHUB_CLIENT_SECRET: "secret",
@@ -53,12 +52,11 @@ describe("history policy", () => {
   })
 })
 
-describe("frontend URL", () => {
-  it("accepts the origin of a frontend deployed under a path", async () => {
-    const request = new Request("https://worker.test/api/data", { method: "OPTIONS", headers: { Origin: "https://nigh.github.io" } })
-    const response = await worker.fetch(request, env)
-    expect(response.status).toBe(204)
-    expect(response.headers.get("access-control-allow-origin")).toBe("https://nigh.github.io")
+describe("same-origin writes", () => {
+  it("rejects cross-origin logout", async () => {
+    const cookie = await loginCookie()
+    const response = await worker.fetch(new Request("https://worker.test/auth/logout", { method: "POST", headers: { Origin: "https://evil.test", Cookie: cookie } }), env)
+    expect(response.status).toBe(403)
   })
 })
 
@@ -71,7 +69,7 @@ describe("TMDB metadata", () => {
       if (url === "https://graphql.anilist.co") return Response.json({ data: { Media: { title: { romaji: "Sousou no Frieren" } } } })
       throw new Error(`Unexpected request: ${url}`)
     }))
-    const response = await worker.fetch(new Request("https://worker.test/api/tmdb/series/42", { headers: { Origin: "https://nigh.github.io", Cookie: cookie } }), env)
+    const response = await worker.fetch(new Request("https://worker.test/api/tmdb/series/42", { headers: { Cookie: cookie } }), env)
     expect(await response.json()).toEqual({ id: 42, titles: ["葬送的芙莉莲", "葬送のフリーレン", "葬送的芙莉蓮", "Frieren: Beyond Journey's End", "Sousou no Frieren"], seasons: [{ seasonNumber: 1, name: "第 1 季", episodeCount: 28, airDate: "2023-09-29" }] })
   })
 })
@@ -84,7 +82,7 @@ describe("repository availability", () => {
       if (url.endsWith("/repos/tester/bangumi-trace-data")) return new Response("{}", { status: 404 })
       throw new Error(`Unexpected request: ${url}`)
     }))
-    const response = await worker.fetch(new Request("https://worker.test/api/data", { headers: { Origin: "https://nigh.github.io", Cookie: cookie } }), env)
+    const response = await worker.fetch(new Request("https://worker.test/api/data", { headers: { Cookie: cookie } }), env)
     expect(response.status).toBe(404)
     expect(await response.json()).toMatchObject({ code: "DATA_REPOSITORY_UNAVAILABLE" })
   })
@@ -97,13 +95,14 @@ describe("repository availability", () => {
       if (url.includes("/contents/data/bangumi-app.json")) return new Response("{}", { status: 404 })
       throw new Error(`Unexpected request: ${url}`)
     }))
-    const response = await worker.fetch(new Request("https://worker.test/api/data", { headers: { Origin: "https://nigh.github.io", Cookie: cookie } }), env)
+    const response = await worker.fetch(new Request("https://worker.test/api/data", { headers: { Cookie: cookie } }), env)
     expect(await response.json()).toEqual({ data: null, sha: null })
   })
 })
 
 async function loginCookie() {
   const login = await worker.fetch(new Request("https://worker.test/auth/login"), env)
+  expect(login.headers.get("set-cookie")).toContain("SameSite=Lax")
   const oauthCookie = login.headers.get("set-cookie")!.split(";")[0]
   const state = new URL(login.headers.get("location")!).searchParams.get("state")!
   vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
@@ -113,6 +112,6 @@ async function loginCookie() {
     throw new Error(`Unexpected request: ${url}`)
   }))
   const callback = await worker.fetch(new Request(`https://worker.test/auth/callback?state=${state}&code=code`, { headers: { Cookie: oauthCookie } }), env)
-  expect(callback.headers.get("location")).toBe("https://nigh.github.io/bangumi-trace/#list")
+  expect(callback.headers.get("location")).toBe("https://worker.test/#list")
   return callback.headers.get("set-cookie")!.match(/bt_session=[^;,]+/)![0]
 }

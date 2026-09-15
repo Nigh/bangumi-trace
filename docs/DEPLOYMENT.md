@@ -5,57 +5,51 @@
 ## 1. 前置条件
 
 - Node.js LTS、npm、GitHub 账号和 Cloudflare 账号。
-- 一个保存应用代码并用于部署 Pages 的仓库。每位使用者还需在自己的个人账号下创建名为 `bangumi-trace-data` 的私有仓库。
+- 一个保存应用代码并通过 Cloudflare Workers 部署的仓库。每位使用者还需在自己的个人账号下创建名为 `bangumi-trace-data` 的私有仓库。
 - 本地执行 `npm ci && npm run check && npm test && npm run build`。
 - `BANGUMI_WEB_APP_HANDOFF.md`、`data/bangumi.json`、`data/bangumi-history.json` 只留在本机，确认 `git check-ignore` 能命中它们。
 
 ## 2. 创建 GitHub App
 
 1. 在 GitHub 的 Developer settings 中创建 GitHub App。
-2. 此时线上地址尚未生成，Homepage URL 先填 `http://localhost:4321`。
+2. 此时线上地址尚未生成，Homepage URL 先填 `http://localhost:8787`。
 3. Redirect URI 先填 `http://localhost:8787/auth/callback`。GitHub 文档和代码有时仍称它为 callback URL；`redirect_uri` 也是授权请求中的对应参数。本项目未显式传该参数，因此 GitHub 会使用配置中的第一个 Redirect URI。不要误填到 Setup URL。
 4. Webhook 设为不启用；Repository permissions 仅将 **Contents** 设为 **Read and write**，其余保持无权限。
 5. 在 **Where can this GitHub App be installed?** 中选择 **Any account**，让其他 GitHub 用户可以安装。
 6. 记录 client ID，并生成 client secret；不要下载或提交私钥，本项目不需要私钥。测试时通过 App 的公开安装页安装，并选择 **Only select repositories**，只授权 `bangumi-trace-data`。
 
-## 3. 本地运行 Worker
+## 3. 本地运行
+
+先构建前端，再由 Wrangler 在同一 origin 提供静态资源和 API：
 
 ```sh
+npm ci
+npm run build
 cd worker
 npm ci
 cp .dev.vars.example .dev.vars
+npm run dev
 ```
 
-在本机编辑 `.dev.vars`，替换全部占位符；不能保留示例中的尖括号值。该文件已被 Git 忽略。各项填写如下：
+在本机编辑 `.dev.vars`，替换全部占位符；不能保留示例中的尖括号值。该文件已被 Git 忽略。
 
-- `GITHUB_CLIENT_ID`、`GITHUB_CLIENT_SECRET`：刚创建的 GitHub App 凭据。
+- `GITHUB_CLIENT_ID`、`GITHUB_CLIENT_SECRET`：GitHub App 凭据。
 - `SESSION_SECRET`：32 个随机字节的 base64；运行 `openssl rand -base64 32` 生成。
-- `FRONTEND_ORIGIN`：完整前端 URL；本地保留 `http://localhost:4321`。部署到项目 Pages 时必须包含路径，例如 `https://<USER>.github.io/bangumi-trace/`。
-- `TMDB_API_TOKEN`：登录 [TMDB](https://www.themoviedb.org/) 后，在账号设置的 API 页面申请开发者 API 访问，复制 **API Read Access Token**（Bearer token）。只放入 Worker secret，不要写入前端、仓库或日志；AniList 回退使用公开 GraphQL API，无需密钥。
+- `TMDB_API_TOKEN`：TMDB API Read Access Token。
 
-非敏感的 `GITHUB_BRANCH` 和 `GITHUB_DATA_PATH` 已在 `worker/wrangler.jsonc` 中分别设为 `main` 和 `data/bangumi-app.json`；如需修改，直接编辑该配置文件。
+本地应用与 API 均使用 Wrangler 输出的地址（默认 `http://localhost:8787`）。修改前端后需重新运行根目录的 `npm run build`。
 
-确认 GitHub App 的 Redirect URI 仍为 `http://localhost:8787/auth/callback`，然后运行：
+## 4. 部署单 Worker
 
-```sh
-npm run dev
-```
-
-另一个终端在仓库根目录创建本地前端配置（同样不会提交）：
+先登录、构建并检查：
 
 ```sh
-printf 'PUBLIC_WORKER_ORIGIN=http://localhost:8787\n' > .env
-npm run dev
-```
-
-完成登录、读取、首次创建、再次读取和旧 SHA 冲突测试。浏览器必须允许跨站 Cookie；线上建议给 Worker 配置与前端同站的自定义域名以减少浏览器限制。
-
-## 4. 部署 Worker
-
-先登录并检查配置，不要把凭据作为命令参数：
-
-```sh
+npm ci
+npm run check
+npm test
+npm run build
 cd worker
+npm ci
 npx wrangler login
 npx wrangler whoami
 npx wrangler types
@@ -64,38 +58,27 @@ npm test
 npx wrangler deploy --dry-run
 ```
 
-逐项交互设置 secret；终端只输入变量名，Wrangler 提示后再粘贴真实值：
+逐项交互设置运行时 secret；Wrangler 提示后再粘贴真实值：
 
 ```sh
 npx wrangler secret put GITHUB_CLIENT_ID
 npx wrangler secret put GITHUB_CLIENT_SECRET
 npx wrangler secret put SESSION_SECRET
-npx wrangler secret put FRONTEND_ORIGIN
 npx wrangler secret put TMDB_API_TOKEN
 ```
 
-首次部署时 `FRONTEND_ORIGIN` 先填 `http://localhost:4321`，`TMDB_API_TOKEN` 填写 TMDB API Read Access Token；Pages 发布后再把前者替换为正式地址。
+执行 `npx wrangler secret list`，它只应显示名称。随后执行 `npx wrangler deploy`。`worker/wrangler.jsonc` 会把根目录 `dist/` 作为 Static Assets 上传，并让 `/api/*` 与 `/auth/*` 优先进入 Worker。
 
-执行 `npx wrangler secret list`，它只应显示名称。随后部署：
+生产环境可直接使用 Worker 的公开地址，也可在 Worker 的 Settings → Domains & Routes 中绑定自定义域名。不要再单独部署 GitHub Pages。
 
-```sh
-npx wrangler deploy
-npx wrangler tail --status error
-```
+## 5. GitHub Actions
 
-不要复制包含请求 Cookie 或授权回调参数的日志。把 GitHub App Redirect URI 改为实际 Worker 的 `/auth/callback`。
+仓库的部署工作流会构建前端、检查前后端并发布同一个 Worker。在 GitHub 仓库的 Actions secrets 中配置：
 
-## 5. 部署 GitHub Pages
+- `CLOUDFLARE_API_TOKEN`：至少允许部署该 Worker。
+- `CLOUDFLARE_ACCOUNT_ID`：目标 Cloudflare account ID。
 
-在仓库 Settings → Pages 中把 Source 设为 **GitHub Actions**。在仓库 Settings → Secrets and variables → Actions → Variables 中添加：
-
-- `PUBLIC_WORKER_ORIGIN`：Worker 的公开 origin，不带末尾 `/`。
-
-推送 `main` 后，`Deploy frontend` workflow 会构建并发布 `dist/`。它使用 GitHub 自动提供的短期 `GITHUB_TOKEN`，无需创建个人 access token。发布完成后：
-
-1. 把 GitHub App 的 Homepage URL 改为 Pages 的最终地址。
-2. 把 Pages 的完整最终 URL（包括 `/bangumi-trace/` 路径）写入 Worker 的 `FRONTEND_ORIGIN` secret。
-3. 重新部署 Worker。
+Worker 的 GitHub、会话和 TMDB secrets 仍通过 Wrangler 管理，不写入 Actions。
 
 ## 6. 使用与迁移个人数据
 
@@ -113,6 +96,5 @@ npx wrangler tail --status error
 
 - 未登录请求返回 `401`；错误 Origin 返回 `403`；两个客户端用同一旧 SHA 保存时，第二个返回 `409`。
 - 检查 commit 中只包含 `Update bangumi data`，Worker 日志不含数据正文或身份凭据。
-- 前端回滚：在 GitHub Actions 重新运行上一个可靠 commit 的部署。
-- Worker 回滚：运行 `npx wrangler versions list`，确认目标版本后执行 `npx wrangler rollback <VERSION_ID>`。
+- 应用回滚：运行 `npx wrangler versions list`，确认目标版本后执行 `npx wrangler rollback <VERSION_ID>`；静态资源与 Worker 代码会随同一版本回滚。
 - 如怀疑泄漏，立即撤销 GitHub App client secret、重新生成 `SESSION_SECRET`、重新设置 Worker secrets，并审查 Git 历史后再恢复服务。
