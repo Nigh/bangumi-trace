@@ -99,7 +99,7 @@ async function callback(env: Env, request: Request) {
   if (!user.login) return json({ error: "无法读取 GitHub 用户信息" }, 502)
   const maxAge = Math.min(token.expires_in ?? 28_800, 28_800)
   const value = await seal(env, { login: user.login, token: token.access_token, expiresAt: Date.now() + maxAge * 1000 } satisfies Session)
-  const headers = new Headers({ location: frontendUrl(env) + "/#settings" })
+  const headers = new Headers({ location: frontendUrl(env) + "/#list" })
   headers.append("set-cookie", cookie("bt_session", value, maxAge))
   headers.append("set-cookie", cookie("bt_oauth", "", 0))
   return new Response(null, { status: 302, headers })
