@@ -40,7 +40,7 @@
 	class="btn btn-ghost btn-sm"
 	type="button"
 	on:click={toggleTheme}
-	aria-label="Toggle theme"
+	aria-label={theme === "xianii-light" ? "切换到深色模式" : "切换到浅色模式"}
 >
-	{theme === "xianii-light" ? "🌙 Dark" : "☀️ Light"}
+	{theme === "xianii-light" ? "深色" : "浅色"}
 </button>
