@@ -112,6 +112,6 @@ async function loginCookie() {
     throw new Error(`Unexpected request: ${url}`)
   }))
   const callback = await worker.fetch(new Request(`https://worker.test/auth/callback?state=${state}&code=code`, { headers: { Cookie: oauthCookie } }), env)
-  expect(callback.headers.get("location")).toBe("https://worker.test/#settings")
+  expect(callback.headers.get("location")).toBe("https://worker.test/#list")
   return callback.headers.get("set-cookie")!.match(/bt_session=[^;,]+/)![0]
 }
