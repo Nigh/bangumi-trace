@@ -32,7 +32,7 @@
 {#if needRefresh || offlineReady}
 	<div class="toast toast-end toast-bottom z-50">
 		{#if offlineReady}
-			<div class="alert alert-success text-white shadow-lg">
+			<div class="alert alert-success shadow-lg" role="status">
 				<svg
 					xmlns="http://www.w3.org/2000/svg"
 					class="h-6 w-6 stroke-current shrink-0"
@@ -51,7 +51,7 @@
 
 		{#if needRefresh}
 			<div
-				class="alert alert-info text-white shadow-lg flex flex-row gap-4"
+				class="alert alert-info shadow-lg flex-col items-stretch gap-3 sm:flex-row sm:items-center"
 				role="alert"
 			>
 				<svg
@@ -68,18 +68,18 @@
 				>
 				<div class="flex flex-col">
 					<span class="font-bold">发现新版本！</span>
-					<span class="text-xs">Click reload to update.</span>
+					<span class="text-xs">重新加载即可使用最新版本。</span>
 				</div>
 
 				<div class="flex gap-2">
 					<button class="btn btn-sm btn-ghost" on:click={close}>
-						Close
+						稍后
 					</button>
 					<button
-						class="btn btn-sm btn-primary border-white text-white hover:bg-primary-focus hover:border-white"
+						class="btn btn-sm btn-primary"
 						on:click={() => updateServiceWorker(true)}
 					>
-						Reload
+						重新加载
 					</button>
 				</div>
 			</div>
