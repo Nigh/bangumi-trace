@@ -2,8 +2,8 @@ type Volume = { id: string; type: string; episodeCount: number }
 
 export function validData(value: unknown) {
   if (!value || typeof value !== "object") return false
-  const data = value as { version?: unknown; shows?: unknown; watchEvents?: unknown }
-  if (data.version !== 3 || !Array.isArray(data.shows) || !Array.isArray(data.watchEvents)) return false
+  const data = value as { version?: unknown; shows?: unknown; watchEvents?: unknown; folders?: unknown }
+  if (data.version !== 4 || !Array.isArray(data.shows) || !Array.isArray(data.watchEvents) || !Array.isArray(data.folders)) return false
   const volumeOwners = new Map<string, { showId: string; episodeCount: number }>()
   for (const show of data.shows) {
     if (!show || typeof show !== "object") return false
@@ -19,6 +19,13 @@ export function validData(value: unknown) {
       volumeOwners.set(volume.id, { showId: item.id, episodeCount: Number(volume.episodeCount) })
     }
   }
+  const showIds = new Set(data.shows.map((show) => (show as { id: string }).id)), folderIds = new Set<string>(), assigned = new Set<string>()
+  if (!data.folders.every((folder) => {
+    if (!folder || typeof folder !== "object") return false
+    const item = folder as { id?: unknown; name?: unknown; showIds?: unknown }
+    return typeof item.id === "string" && !folderIds.has(item.id) && Boolean(folderIds.add(item.id)) && typeof item.name === "string" && Boolean(item.name.trim()) && Array.isArray(item.showIds) &&
+      item.showIds.every((id) => typeof id === "string" && showIds.has(id) && !assigned.has(id) && Boolean(assigned.add(id)))
+  })) return false
   return data.watchEvents.every((event) => {
     if (!event || typeof event !== "object") return false
     const item = event as { id?: unknown; showId?: unknown; episodes?: unknown; watchedAt?: unknown; recordedAt?: unknown; source?: unknown }
