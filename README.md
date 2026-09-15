@@ -13,7 +13,7 @@ npm ci
 npm run dev
 ```
 
-前端通过本地 `.env` 中的 `PUBLIC_WORKER_ORIGIN` 连接 Worker。Worker 位于 `worker/`，使用独立依赖和 `.dev.vars`。
+Astro 构建产物由 `worker/` 中的 Cloudflare Worker 作为 Static Assets 提供，页面、OAuth 和 API 使用同一 origin。
 
 ```sh
 cd worker
