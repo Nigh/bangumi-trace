@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { emptyData, expandedEpisodes, hasWatchedAll, isBangumiData, mapCumulativeEpisode, matchesTitle, nextEpisode, normalizeBangumiData, nextVolumeEpisode, setDefaultTitle, sortShowsByActivity, statusDisplay, uniqueTitles, volumeLabel, type BangumiData, type Show } from "../src/lib/model"
+import { emptyData, expandedEpisodes, externalEpisodeRange, hasWatchedAll, isBangumiData, mapCumulativeEpisode, matchesTitle, nextEpisode, normalizeBangumiData, nextVolumeEpisode, setDefaultTitle, sortShowsByActivity, statusDisplay, uniqueTitles, volumeLabel, type BangumiData, type Show } from "../src/lib/model"
 
 const show: Show = {
   id: "show-1", title: ["默认标题", "Japanese title", "English Title"], status: "watching",
@@ -15,6 +15,7 @@ describe("title arrays", () => {
     expect(setDefaultTitle(show, 2).title).toEqual(["English Title", "默认标题", "Japanese title"])
     expect(matchesTitle(show, "japanese")).toBe(true)
     expect(uniqueTitles("默认标题", ["默认标题", "別名"])).toEqual(["默认标题", "別名"])
+    expect(matchesTitle({ ...show, aliases: ["手动别名"] }, "手动")).toBe(true)
   })
 })
 
@@ -24,6 +25,13 @@ describe("volumes and activity", () => {
     expect(volumeLabel(show, show.volumes[1])).toBe("OVA")
     expect(volumeLabel({ ...show, volumes: [...show.volumes, { id: "ova2", type: "OVA", episodeCount: 1 }] }, show.volumes[1])).toBe("OVA 1")
     expect(mapCumulativeEpisode(show, "正剧", 13)).toEqual({ volumeId: "s2", episode: 1 })
+  })
+
+  it("maps matching TMDB seasons continuously by volume type", () => {
+    const ref = { provider: "tmdb" as const, seriesId: 1, seasonNumber: 1 }
+    const linked = { ...show, volumes: [{ id: "s1", type: "正剧", episodeCount: 13, externalRef: ref }, { id: "ova", type: "OVA", episodeCount: 1, externalRef: ref }, { id: "s2", type: "正剧", episodeCount: 11, externalRef: ref }] }
+    expect(externalEpisodeRange(linked, linked.volumes[0])).toEqual({ from: 1, to: 13 })
+    expect(externalEpisodeRange(linked, linked.volumes[2])).toEqual({ from: 14, to: 24 })
   })
 
   it("continues the latest volume, then advances when full", () => {
@@ -59,15 +67,16 @@ describe("validation", () => {
     expect(isBangumiData({ ...data, shows: [{ ...show, note: "" }] })).toBe(true)
     expect(isBangumiData({ ...data, shows: [{ ...show, volumes: [{ ...show.volumes[0], externalRef: { provider: "tmdb", seriesId: 42, seasonNumber: 1 } }] }] })).toBe(true)
     expect(isBangumiData({ ...data, shows: [{ ...show, volumes: [{ ...show.volumes[0], externalRef: { provider: "bangumi", id: "1" } }] }] })).toBe(false)
-    expect(isBangumiData({ ...data, version: 4 })).toBe(false)
+    expect(isBangumiData({ ...data, version: 5 })).toBe(false)
     expect(isBangumiData({ ...data, shows: [{ ...show, note: "x".repeat(2049) }] })).toBe(false)
     expect(isBangumiData({ ...data, shows: [{ ...show, volumes: [{ id: "huge", type: "正剧", episodeCount: 257 }] }] })).toBe(false)
     expect(isBangumiData({ ...data, watchEvents: [{ ...data.watchEvents[0], episodes: { volumeId: "missing", from: 1, to: 1 } }] })).toBe(false)
   })
-  it("rejects version 4 and validates folder mappings", () => {
+  it("migrates version 5 and validates folder mappings", () => {
     const current = { ...emptyData(), shows: [show] }
-    const legacy = { version: 4, shows: current.shows, watchEvents: current.watchEvents }
-    expect(normalizeBangumiData(legacy)).toBeNull()
+    const legacy = { version: 5, shows: current.shows, watchEvents: current.watchEvents, folders: current.folders }
+    expect(normalizeBangumiData(legacy)?.version).toBe(6)
+    expect(normalizeBangumiData({ ...legacy, version: 4 })).toBeNull()
     expect(isBangumiData({ ...current, folders: [{ id: "folder-1", name: "系列", showIds: [show.id] }] })).toBe(true)
     expect(isBangumiData({ ...current, folders: [{ id: "folder-1", name: "系列", showIds: ["missing"] }] })).toBe(false)
     expect(isBangumiData({ ...current, folders: [{ id: "folder-1", name: "系列", showIds: [show.id] }, { id: "folder-2", name: "重复", showIds: [show.id] }] })).toBe(false)

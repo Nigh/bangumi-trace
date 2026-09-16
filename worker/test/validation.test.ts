@@ -13,7 +13,7 @@ const env = {
 } as Env
 
 const data = {
-  version: 5,
+  version: 6,
   folders: [],
   shows: [{ id: "show-1", title: ["Primary", "Alternative"], status: "watching", volumes: [{ id: "s1", type: "正剧", episodeCount: 12 }] }],
   watchEvents: [{ id: "event-1", showId: "show-1", episodes: { volumeId: "s1", from: 1, to: 1 }, watchedAt: { precision: "day", value: "2026-09-14" }, recordedAt: "2026-09-14T12:00:00Z", source: "manual" }],
@@ -22,14 +22,16 @@ const data = {
 afterEach(() => vi.unstubAllGlobals())
 
 describe("data boundary", () => {
-  it("accepts version 5 and rejects old, oversized, or dangling data", () => {
+  it("accepts version 6 and rejects old, oversized, or dangling data", () => {
     expect(validData(data)).toBe(true)
     expect(validData({ ...data, shows: [{ ...data.shows[0], note: "" }] })).toBe(true)
+    expect(validData({ ...data, shows: [{ ...data.shows[0], aliases: ["Manual alias"] }] })).toBe(true)
+    expect(validData({ ...data, shows: [{ ...data.shows[0], aliases: [""] }] })).toBe(false)
     expect(validData({ ...data, shows: [{ ...data.shows[0], volumes: [{ ...data.shows[0].volumes[0], externalRef: { provider: "tmdb", seriesId: 42, seasonNumber: 1 } }] }] })).toBe(true)
     expect(validData({ ...data, shows: [{ ...data.shows[0], volumes: [{ ...data.shows[0].volumes[0], externalRef: { provider: "bangumi", id: "1" } }] }] })).toBe(false)
     expect(validData({ ...data, folders: [{ id: "folder-1", name: "系列", showIds: ["show-1"] }] })).toBe(true)
     expect(validData({ ...data, folders: [{ id: "folder-1", name: "系列", showIds: ["missing"] }] })).toBe(false)
-    expect(validData({ ...data, version: 4 })).toBe(false)
+    expect(validData({ ...data, version: 5 })).toBe(false)
     expect(validData({ ...data, shows: [{ ...data.shows[0], note: "x".repeat(2049) }] })).toBe(false)
     expect(validData({ ...data, shows: [{ ...data.shows[0], volumes: [{ id: "huge", type: "正剧", episodeCount: 257 }] }] })).toBe(false)
     expect(validData({ ...data, watchEvents: [{ ...data.watchEvents[0], watchedAt: { precision: "month", value: "2026-09" } }] })).toBe(true)
