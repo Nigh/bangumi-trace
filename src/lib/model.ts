@@ -11,6 +11,7 @@ export interface Volume {
 export interface Show {
   id: string
   title: [string, ...string[]]
+  aliases?: string[]
   status: Status
   volumes: Volume[]
   note?: string
@@ -35,20 +36,26 @@ export interface WatchEvent {
 }
 
 export interface Folder { id: string; name: string; showIds: string[] }
-export interface BangumiData { version: 5; shows: Show[]; watchEvents: WatchEvent[]; folders: Folder[] }
-export const emptyData = (): BangumiData => ({ version: 5, shows: [], watchEvents: [], folders: [] })
+export interface BangumiData { version: 6; shows: Show[]; watchEvents: WatchEvent[]; folders: Folder[] }
+export const emptyData = (): BangumiData => ({ version: 6, shows: [], watchEvents: [], folders: [] })
 
 export function normalizeBangumiData(value: unknown): BangumiData | null {
-  return isBangumiData(value) ? value : null
+  if (isBangumiData(value)) return value
+  if (value && typeof value === "object" && (value as { version?: unknown }).version === 5) {
+    const migrated = { ...value, version: 6 }
+    return isBangumiData(migrated) ? migrated : null
+  }
+  return null
 }
 
 export function isBangumiData(value: unknown): value is BangumiData {
   if (!value || typeof value !== "object") return false
   const data = value as Record<string, unknown>
-  if (data.version !== 5 || !Array.isArray(data.shows) || !Array.isArray(data.watchEvents) || !Array.isArray(data.folders)) return false
+  if (data.version !== 6 || !Array.isArray(data.shows) || !Array.isArray(data.watchEvents) || !Array.isArray(data.folders)) return false
   const shows = data.shows as Record<string, unknown>[]
   if (!shows.every((show) => typeof show?.id === "string" && Array.isArray(show.title) && show.title.length > 0 &&
     show.title.every((title) => typeof title === "string" && title.trim()) &&
+    (show.aliases === undefined || Array.isArray(show.aliases) && show.aliases.every((alias) => typeof alias === "string" && alias.trim())) &&
     ["planned", "watching", "completed", "dropped"].includes(String(show.status)) &&
     (show.note === undefined || typeof show.note === "string" && show.note.length <= 2048) && Array.isArray(show.volumes) &&
     show.volumes.every((volume) => validVolume(volume)))) return false
@@ -96,7 +103,7 @@ export function uniqueTitles(primary: string, titles: string[]): [string, ...str
 
 export const matchesTitle = (show: Show, query: string) => {
   const needle = query.trim().toLocaleLowerCase()
-  return !needle || show.title.some((title) => title.toLocaleLowerCase().includes(needle))
+  return !needle || [...show.title, ...(show.aliases ?? [])].some((title) => title.toLocaleLowerCase().includes(needle))
 }
 
 export function setDefaultTitle(show: Show, index: number): Show {
@@ -119,6 +126,15 @@ export function mapCumulativeEpisode(show: Show, type: string, episode: number) 
     rest -= volume.episodeCount
   }
   return null
+}
+
+export function externalEpisodeRange(show: Show, volume: Volume) {
+  if (!volume.externalRef) return null
+  const linked = show.volumes.filter((item) => item.type === volume.type && item.externalRef?.seriesId === volume.externalRef!.seriesId && item.externalRef.seasonNumber === volume.externalRef!.seasonNumber)
+  const index = linked.indexOf(volume)
+  if (index < 0) return null
+  const from = linked.slice(0, index).reduce((sum, item) => sum + item.episodeCount, 1)
+  return { from, to: from + volume.episodeCount - 1 }
 }
 
 export function nextEpisode(data: BangumiData, volume: Volume) {
