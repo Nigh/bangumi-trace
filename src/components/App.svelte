@@ -4,6 +4,7 @@
   import { importCurrent, importHistory } from "../lib/importer"
   import { emptyData, episodeLabel, eventTime, expandedEpisodes, externalEpisodeRange, hasWatchedAll, matchesTitle, normalizeBangumiData, nextEpisode, nextVolumeEpisode, setDefaultTitle, sortShowsByActivity, statusDisplay, uniqueTitles, volumeLabel, type BangumiData, type Folder, type Precision, type Show, type Status, type Volume, type WatchEvent } from "../lib/model"
   import { getTmdbSeries, loadData, loginUrl, logout, saveData, searchTmdb } from "../lib/api"
+  import { validateData } from "../../shared/validation"
 
   const ASSET_BASE = import.meta.env.BASE_URL.replace(/\/$/, "")
   const CACHE = "bangumi-trace-cache"
@@ -15,7 +16,7 @@
     { value: "dropped", label: "已经弃番", badge: "badge-neutral" }
   ]
   let data: BangumiData = emptyData(), sha: string | null = null, query = "", statusFilter: Status[] = statuses.map(({ value }) => value), listRank = new Map<string, number>()
-  let view = "list", selectedId = "", notice = "", noticeAction: (() => void) | null = null, auth: "checking" | "authenticated" | "unauthenticated" | "repository-error" = "checking", busy = false, dirty = false
+  let view = "list", selectedId = "", notice = "", importError = "", noticeAction: (() => void) | null = null, auth: "checking" | "authenticated" | "unauthenticated" | "repository-error" = "checking", busy = false, dirty = false
   let importBackup: BangumiData | null = null, repositoryDialog: HTMLDialogElement, confirmDialog: HTMLDialogElement, addShowDialog: HTMLDialogElement, addVolumeDialog: HTMLDialogElement, metadataDialog: HTMLDialogElement, folderDialog: HTMLDialogElement, moveDialog: HTMLDialogElement
   let confirmation: { title: string; body: string; label: string; danger: boolean; action: () => void | Promise<void>; secondaryLabel?: string; secondaryAction?: () => void | Promise<void> } = { title: "", body: "", label: "确认", danger: false, action: () => {} }
   let newTitle = "", addToFolderId = "", folderName = "", editingFolderId = "", metadataQuery = "", candidates: Awaited<ReturnType<typeof searchTmdb>>["data"] = [], tmdbSeries: Awaited<ReturnType<typeof getTmdbSeries>> | null = null, targetVolumeId = "", metadataBusy = false, metadataSearched = false, metadataError = ""
@@ -246,16 +247,25 @@
   }
   function undoImport() { if (importBackup) { data = importBackup; importBackup = null; cache(); message("已撤销最近一次导入") } }
   async function importFile(file: File) {
+    importError = ""
     try {
-      const value = JSON.parse(await file.text())
-      if (Array.isArray(value.items)) {
+      let value: unknown
+      try { value = JSON.parse(await file.text()) }
+      catch (error) { throw new Error(`不是有效 JSON：${(error as Error).message}`) }
+      const input = value as Record<string, unknown> | null
+      if (input && "version" in input) {
+        const normalized = normalizeBangumiData(value)
+        const error = normalized ? validateData(normalized) : validateData(value)
+        if (error) throw new Error(`数据格式无效：${error}`)
+        ask("导入 Bangumi Trace 备份？", `将用备份中的 ${normalized!.shows.length} 个作品和 ${normalized!.watchEvents.length} 条观看记录覆盖本地草稿。`, () => { importBackup = structuredClone(data); data = normalized!; cache(); refreshListOrder(); message("备份已导入本地草稿，请检查后保存") }, "覆盖本地草稿", true)
+      } else if (Array.isArray(input?.items)) {
         const imported = importCurrent(value)
         ask("导入作品？", `将添加 ${imported.length} 个作品到本地草稿。`, () => { importBackup = structuredClone(data); data = { ...data, shows: [...data.shows, ...imported] }; cache(); message("导入保存在本地草稿中，请检查后保存") }, "确认导入")
-      } else {
+      } else if (Array.isArray(input?.events)) {
         const imported = importHistory(value, data)
         ask("导入观看历史？", `将添加 ${imported.length} 条高置信候选记录，观看时间保持未知。`, () => { importBackup = structuredClone(data); data = { ...data, watchEvents: [...data.watchEvents, ...imported] }; cache(); message("导入保存在本地草稿中，请检查后保存") }, "确认导入")
-      }
-    } catch (error) { message((error as Error).message) }
+      } else throw new Error("无法识别导入文件：需要 Bangumi Trace 备份、bangumi.json 或 bangumi-history.json")
+    } catch (error) { importError = (error as Error).message }
   }
 </script>
 
@@ -319,7 +329,7 @@
     {:else if view === "record" && selected}
       <section class="space-y-5"><button class="btn btn-outline btn-sm w-fit" on:click={() => go(`show/${selected!.id}`)}><span aria-hidden="true">←</span> {selected.title[0]}</button><header><h1 class="text-3xl font-bold">补录观看记录</h1><p class="mt-1 truncate text-base-content/60">{selected.title[0]}</p></header><form class="card border border-base-300" on:submit|preventDefault={record}><div class="card-body gap-5"><div><h2 class="mb-3 font-semibold">观看范围</h2><label class="form-control"><span class="label-text">Volume</span><select class="select select-bordered" bind:value={volumeId} on:change={() => { episodeFrom = episodeTo = 1; rangeAnchor = null }}>{#each selected.volumes as volume}<option value={volume.id}>{volumeLabel(selected, volume)}</option>{/each}</select></label>{#if recordVolume}<div class="mt-4"><p class="mb-2 text-sm font-medium">已选择第 {episodeFrom === episodeTo ? episodeFrom : `${episodeFrom}–${episodeTo}`} 话</p><div class="grid grid-cols-12 gap-1" aria-describedby="range-help">{#each Array(recordVolume.episodeCount) as _, index}{@const episode = index + 1}{@const inRange = episode >= episodeFrom && episode <= episodeTo}<button class={`min-h-8 rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary sm:min-h-10 ${inRange ? "bg-primary text-primary-content" : "bg-base-300 hover:bg-primary/50"}`} type="button" aria-pressed={inRange} aria-label={`第 ${episode} 话${inRange ? "，已选择" : ""}`} title={`第 ${episode} 话`} on:click={() => selectRange(episode)}></button>{/each}</div><p id="range-help" class="mt-2 text-xs text-base-content/60">点击一格设为起点，再点击一格确定连续范围；继续点击可重新选择。</p></div>{/if}</div>{#if recordError}<p id="record-error" class="text-sm text-error" role="alert">{recordError}</p>{/if}<div class="divider my-0"></div><div><h2 class="mb-3 font-semibold">观看时间</h2><div class="grid gap-4 sm:grid-cols-3"><label class="form-control"><span class="label-text">时间精度</span><select class="select select-bordered" bind:value={precision}><option value="unknown">未知</option><option value="exact">精确</option><option value="day">精确到日</option><option value="month">精确到月</option><option value="year">精确到年</option></select></label>{#if precision === "unknown"}<button class="btn btn-primary btn-outline self-end sm:col-span-2" type="button" on:click={() => precision = "exact"}>选择日期与时间</button>{:else if precision === "exact"}<label class="form-control sm:col-span-2"><span class="label-text">日期与时间</span><input class="input input-primary w-full cursor-pointer" type="datetime-local" bind:value={watchedValue} /></label>{:else if precision === "day"}<label class="form-control sm:col-span-2"><span class="label-text">日期</span><input class="input input-primary w-full cursor-pointer" type="date" bind:value={watchedValue} /></label>{:else if precision === "month"}<label class="form-control sm:col-span-2"><span class="label-text">月份</span><input class="input input-primary w-full cursor-pointer" type="month" bind:value={watchedValue} /></label>{:else if precision === "year"}<label class="form-control sm:col-span-2"><span class="label-text">年份</span><input class="input input-bordered w-full" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" placeholder="例如 2026" bind:value={watchedValue} /></label>{/if}</div></div><div class="card-actions justify-end"><button class="btn" type="button" on:click={() => go(`show/${selected!.id}`)}>取消</button><button class="btn btn-primary">{editingEventId ? "更新本地草稿" : "加入本地草稿"}</button></div></div></form></section>
     {:else if view === "settings"}
-      <section class="space-y-6"><button class="btn btn-outline btn-sm w-fit" on:click={() => go("list")}><span aria-hidden="true">←</span> 我的番剧</button><h1 class="text-3xl font-bold">设置与导入</h1><div class="card border border-base-300"><div class="card-body"><h2 class="card-title">GitHub 数据</h2><p>已登录 · {sha ? `SHA ${sha.slice(0, 8)}` : "远端文件尚未创建"}</p><div class="card-actions"><button class="btn btn-warning" disabled={busy} on:click={() => sync(true)}>强制从 GitHub 覆盖本地</button><button class="btn btn-primary" disabled={!dirty || busy} on:click={save}>保存到 GitHub</button><button class="btn btn-ghost" on:click={async () => { await logout(); auth = "unauthenticated" }}>退出</button></div></div></div><div class="card border border-base-300"><div class="card-body"><h2 class="card-title">本地迁移</h2><p>文件只在当前浏览器读取；先导入当前状态，再导入历史。</p><input class="file-input file-input-bordered" type="file" accept="application/json,.json" aria-label="选择迁移 JSON" on:change={(e) => { const file = e.currentTarget.files?.[0]; if (file) importFile(file) }} /><div class="card-actions"><button class="btn btn-sm" on:click={downloadBackup}>下载当前备份</button><button class="btn btn-sm" disabled={!importBackup} on:click={undoImport}>撤销最近导入</button></div></div></div></section>
+      <section class="space-y-6"><button class="btn btn-outline btn-sm w-fit" on:click={() => go("list")}><span aria-hidden="true">←</span> 我的番剧</button><h1 class="text-3xl font-bold">设置与导入</h1><div class="card border border-base-300"><div class="card-body"><h2 class="card-title">GitHub 数据</h2><p>已登录 · {sha ? `SHA ${sha.slice(0, 8)}` : "远端文件尚未创建"}</p><div class="card-actions"><button class="btn btn-warning" disabled={busy} on:click={() => sync(true)}>强制从 GitHub 覆盖本地</button><button class="btn btn-primary" disabled={!dirty || busy} on:click={save}>保存到 GitHub</button><button class="btn btn-ghost" on:click={async () => { await logout(); auth = "unauthenticated" }}>退出</button></div></div></div><div class="card border border-base-300"><div class="card-body"><h2 class="card-title">本地迁移</h2><p>支持 Bangumi Trace 备份和旧版迁移文件；文件只在当前浏览器读取。</p>{#if importError}<p class="text-sm text-error" role="alert">{importError}</p>{/if}<input class="file-input file-input-bordered" type="file" accept="application/json,.json" aria-label="选择迁移 JSON" on:change={(e) => { const file = e.currentTarget.files?.[0]; if (file) importFile(file) }} /><div class="card-actions"><button class="btn btn-sm" on:click={downloadBackup}>下载当前备份</button><button class="btn btn-sm" disabled={!importBackup} on:click={undoImport}>撤销最近导入</button></div></div></div></section>
     {:else}<div class="py-16 text-center"><p>页面或作品不存在</p><button class="btn mt-4" on:click={() => go("list")}>返回列表</button></div>{/if}
   </main>
 {/if}

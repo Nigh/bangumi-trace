@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { emptyData, expandedEpisodes, externalEpisodeRange, hasWatchedAll, isBangumiData, mapCumulativeEpisode, matchesTitle, nextEpisode, normalizeBangumiData, nextVolumeEpisode, setDefaultTitle, sortShowsByActivity, statusDisplay, uniqueTitles, volumeLabel, type BangumiData, type Show } from "../src/lib/model"
+import { validateData } from "../shared/validation"
 
 const show: Show = {
   id: "show-1", title: ["默认标题", "Japanese title", "English Title"], status: "watching",
@@ -80,6 +81,11 @@ describe("validation", () => {
     expect(isBangumiData({ ...current, folders: [{ id: "folder-1", name: "系列", showIds: [show.id] }] })).toBe(true)
     expect(isBangumiData({ ...current, folders: [{ id: "folder-1", name: "系列", showIds: ["missing"] }] })).toBe(false)
     expect(isBangumiData({ ...current, folders: [{ id: "folder-1", name: "系列", showIds: [show.id] }, { id: "folder-2", name: "重复", showIds: [show.id] }] })).toBe(false)
+  })
+
+  it("reports the first invalid data path", () => {
+    const data: BangumiData = { ...emptyData(), shows: [show], watchEvents: [event("s1", 13, "2026-09-12")] }
+    expect(validateData(data)).toBe("$.watchEvents[0].episodes.to: 必须不小于 from 且不超过 volume 集数")
   })
 
 })

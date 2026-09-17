@@ -31,4 +31,12 @@ npm run build
 cd worker && npm run check && npm test
 ```
 
+校验本地编辑过的 Bangumi Trace 数据文件：
+
+```sh
+npm run validate:data -- path/to/bangumi-app.json
+```
+
+命令会区分 JSON 语法错误与数据格式错误；格式错误会输出第一个异常字段的 JSONPath。
+
 完整且不包含真实账号信息的部署步骤见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)。本地 handoff 和 `data/` 下的个人迁移数据已被忽略，禁止提交或复制到 `public/`。
