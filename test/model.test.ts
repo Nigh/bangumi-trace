@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { emptyData, expandedEpisodes, externalEpisodeRange, hasWatchedAll, isBangumiData, mapCumulativeEpisode, matchesTitle, nextEpisode, normalizeBangumiData, nextVolumeEpisode, setDefaultTitle, sortShowsByActivity, statusDisplay, uniqueTitles, volumeLabel, type BangumiData, type Show } from "../src/lib/model"
+import { emptyData, expandedEpisodes, externalEpisodeRange, hasWatchedAll, isBangumiData, mapCumulativeEpisode, matchesTitle, nextEpisode, normalizeBangumiData, nextVolumeEpisode, setDefaultAlias, setDefaultTitle, sortShowsByActivity, statusDisplay, uniqueTitles, volumeLabel, type BangumiData, type Show } from "../src/lib/model"
 import { validateData } from "../shared/validation"
 
 const show: Show = {
@@ -17,6 +17,7 @@ describe("title arrays", () => {
     expect(matchesTitle(show, "japanese")).toBe(true)
     expect(uniqueTitles("默认标题", ["默认标题", "別名"])).toEqual(["默认标题", "別名"])
     expect(matchesTitle({ ...show, aliases: ["手动别名"] }, "手动")).toBe(true)
+    expect(setDefaultAlias({ ...show, aliases: ["手动别名"] }, 0)).toMatchObject({ title: ["手动别名", "默认标题", "Japanese title", "English Title"], aliases: [] })
   })
 })
 

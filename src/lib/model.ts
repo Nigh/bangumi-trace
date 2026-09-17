@@ -70,6 +70,11 @@ export function setDefaultTitle(show: Show, index: number): Show {
   if (index <= 0 || index >= show.title.length) return show
   return { ...show, title: [show.title[index], ...show.title.filter((_, item) => item !== index)] }
 }
+export function setDefaultAlias(show: Show, index: number): Show {
+  const aliases = show.aliases, alias = aliases?.[index]
+  if (!alias) return show
+  return { ...show, title: uniqueTitles(alias, show.title), aliases: aliases.filter((_, item) => item !== index) }
+}
 
 const numerals = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十"]
 const ordinal = (value: number) => value <= 10 ? numerals[value] : String(value)
