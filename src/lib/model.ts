@@ -1,3 +1,5 @@
+import { validData } from "../../shared/validation"
+
 export type Status = "planned" | "watching" | "completed" | "dropped"
 export type Precision = "exact" | "day" | "month" | "year" | "unknown"
 
@@ -49,49 +51,7 @@ export function normalizeBangumiData(value: unknown): BangumiData | null {
 }
 
 export function isBangumiData(value: unknown): value is BangumiData {
-  if (!value || typeof value !== "object") return false
-  const data = value as Record<string, unknown>
-  if (data.version !== 6 || !Array.isArray(data.shows) || !Array.isArray(data.watchEvents) || !Array.isArray(data.folders)) return false
-  const shows = data.shows as Record<string, unknown>[]
-  if (!shows.every((show) => typeof show?.id === "string" && Array.isArray(show.title) && show.title.length > 0 &&
-    show.title.every((title) => typeof title === "string" && title.trim()) &&
-    (show.aliases === undefined || Array.isArray(show.aliases) && show.aliases.every((alias) => typeof alias === "string" && alias.trim())) &&
-    ["planned", "watching", "completed", "dropped"].includes(String(show.status)) &&
-    (show.note === undefined || typeof show.note === "string" && show.note.length <= 2048) && Array.isArray(show.volumes) &&
-    show.volumes.every((volume) => validVolume(volume)))) return false
-  const showIds = new Set(shows.map((show) => show.id as string)), folderIds = new Set<string>(), assigned = new Set<string>()
-  const foldersValid = (data.folders as Record<string, unknown>[]).every((folder) =>
-    typeof folder?.id === "string" && !folderIds.has(folder.id) && Boolean(folderIds.add(folder.id)) && typeof folder.name === "string" && Boolean(folder.name.trim()) && Array.isArray(folder.showIds) &&
-    folder.showIds.every((id) => typeof id === "string" && showIds.has(id) && !assigned.has(id) && Boolean(assigned.add(id))))
-  const volumes = new Map(shows.flatMap((show) => (show.volumes as Volume[]).map((volume) => [volume.id, { volume, showId: show.id }])))
-  return foldersValid && data.watchEvents.every((event) => validEvent(event, volumes))
-}
-
-function validVolume(value: unknown): value is Volume {
-  if (!value || typeof value !== "object") return false
-  const volume = value as Record<string, unknown>
-  return typeof volume.id === "string" && typeof volume.type === "string" && Boolean(volume.type.trim()) &&
-    Number.isInteger(volume.episodeCount) && Number(volume.episodeCount) > 0 && Number(volume.episodeCount) <= 256 &&
-    (volume.externalRef === undefined || validExternalRef(volume.externalRef))
-}
-
-function validExternalRef(value: unknown) {
-  if (!value || typeof value !== "object") return false
-  const ref = value as Record<string, unknown>
-  return ref.provider === "tmdb" && Number.isInteger(ref.seriesId) && Number(ref.seriesId) > 0 &&
-    Number.isInteger(ref.seasonNumber) && Number(ref.seasonNumber) >= 0
-}
-
-function validEvent(value: unknown, volumes: Map<string, { volume: Volume; showId: unknown }>) {
-  if (!value || typeof value !== "object") return false
-  const event = value as Record<string, unknown>, episodes = event.episodes as Record<string, unknown> | undefined
-  const target = episodes && volumes.get(String(episodes.volumeId))
-  return typeof event.id === "string" && typeof event.showId === "string" && target?.showId === event.showId &&
-    Number.isInteger(episodes?.from) && Number.isInteger(episodes?.to) && Number(episodes!.from) > 0 &&
-    Number(episodes!.to) >= Number(episodes!.from) && Number(episodes!.to) <= target.volume.episodeCount &&
-    typeof event.recordedAt === "string" && ["manual", "import-inferred"].includes(String(event.source)) &&
-    !!event.watchedAt && typeof event.watchedAt === "object" &&
-    ["exact", "day", "month", "year", "range", "unknown"].includes(String((event.watchedAt as Record<string, unknown>).precision))
+  return validData(value)
 }
 
 export function uniqueTitles(primary: string, titles: string[]): [string, ...string[]] {
