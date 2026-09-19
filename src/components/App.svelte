@@ -302,7 +302,7 @@
   <main class="grid min-h-dvh place-items-center p-4 text-center">
     <div class="w-full max-w-sm rounded-box border border-base-300 bg-base-100 p-8 shadow-sm">
       <img class="mx-auto size-20 rounded-2xl" src={`${ASSET_BASE}/favicon.png`} alt="" />
-      {#if auth === "checking"}<h1 class="mt-5 text-2xl font-bold">Bangumi Trace</h1><p class="mt-2 text-base-content/70" aria-busy="true">正在检查登录状态…</p>{:else if auth === "repository-error"}<h1 class="mt-5 text-xl font-bold">数据仓库不可用</h1><p class="mt-2 text-base-content/70">完成仓库配置后即可继续使用。</p><button class="btn btn-primary mt-5 w-full" disabled={busy} on:click={() => sync(false)}>重试</button>{:else}<h1 class="mt-5 text-2xl font-bold">Bangumi Trace</h1><p class="mt-2 text-base-content/70">使用 GitHub 同步你的私人观看数据。</p><a class="btn btn-primary mt-5 w-full" href={loginUrl}>使用 GitHub 登录</a>{/if}
+      {#if auth === "checking"}<h1 class="mt-5 text-2xl font-bold">Bangumi Trace</h1><p class="mt-2 text-base-content/70" aria-busy="true">正在检查登录状态…</p>{:else if auth === "repository-error"}<h1 class="mt-5 text-xl font-bold">数据仓库不可用</h1><p class="mt-2 text-base-content/70">完成仓库配置后即可继续使用。</p><button class="btn btn-primary mt-5 w-full" disabled={busy} on:click={() => sync(false)}>重试</button>{:else}<h1 class="mt-5 text-2xl font-bold">Bangumi Trace</h1><p class="mt-2 text-base-content/70">使用 GitHub 同步你的私人观看数据。</p><a class="btn btn-primary mt-5 w-full" href={loginUrl} data-astro-reload>使用 GitHub 登录</a>{/if}
     </div>
   </main>
 {:else}
