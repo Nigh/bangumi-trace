@@ -31,6 +31,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{css,js,html,svg,png,ico,txt}'],
+        navigateFallbackAllowlist: [/^\/$/],
       },
       devOptions: {
         enabled: true,
